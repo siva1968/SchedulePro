@@ -1,0 +1,43 @@
+{
+  "name": "schedulepro",
+  "version": "1.0.0",
+  "description": "Professional appointment scheduling platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "build:api": "cd apps/api && npm run build",
+    "build:web": "cd apps/web && npm run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean",
+    "db:migrate": "cd apps/api && npx prisma migrate dev",
+    "db:generate": "cd apps/api && npx prisma generate",
+    "db:seed": "cd apps/api && npx prisma db seed",
+    "setup": "npm install && npm run db:generate && npm run db:migrate"
+  },
+  "devDependencies": {
+    "@types/node": "^20.5.0",
+    "eslint": "^8.46.0",
+    "prettier": "^3.0.0",
+    "turbo": "^1.10.12",
+    "typescript": "^5.1.6"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "packageManager": "npm@9.8.1",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "sonner": "^2.0.7"
+  }
+}

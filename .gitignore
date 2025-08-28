@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Production builds
+apps/api/dist/
+apps/web/.next/
+apps/web/out/
+build/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Temporary folders
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Test files
+test-*.js
+demo-*.js
+
+# Generated images
+*.png
+
+# SQL files (except schema)
+*.sql
+
+# Turbo
+.turbo

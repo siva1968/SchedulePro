@@ -1,0 +1,473 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER MANAGEMENT & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String?   @map("password_hash") // Null for SSO users
+  firstName        String?   @map("first_name")
+  lastName         String?   @map("last_name")
+  timezone         String    @default("UTC")
+  language         String    @default("en")
+  phoneNumber      String?   @map("phone_number")
+  profileImageUrl  String?   @map("profile_image_url")
+  
+  // System role for global admin access
+  systemRole       SystemRole @default(USER) @map("system_role")
+  
+  // Status and metadata
+  isActive         Boolean   @default(true) @map("is_active")
+  isEmailVerified  Boolean   @default(false) @map("is_email_verified")
+  lastLoginAt      DateTime? @map("last_login_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at") // Soft delete
+  
+  // Subscription and billing
+  subscriptionPlan String    @default("free") @map("subscription_plan")
+  
+  // Relations
+  organizations     OrganizationMember[]
+  ownedOrganizations Organization[] @relation("OrganizationOwner")
+  meetingTypes      MeetingType[]
+  hostedBookings    Booking[] @relation("BookingHost")
+  attendedBookings  BookingAttendee[]
+  availabilities    Availability[]
+  integrations      CalendarIntegration[]
+  passwordResets    PasswordReset[]
+  createdEmailSettings EmailSettings[] @relation("EmailSettingsCreator")
+  updatedEmailSettings EmailSettings[] @relation("EmailSettingsUpdater")
+
+  @@map("users")
+  @@index([email])
+  @@index([subscriptionPlan])
+  @@index([createdAt])
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("password_resets")
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// ORGANIZATION MANAGEMENT
+// ============================================================================
+
+model Organization {
+  id                String   @id @default(uuid())
+  name              String
+  slug              String   @unique // URL-friendly identifier
+  domain            String?  @unique // Custom domain
+  description       String?
+  logoUrl           String?  @map("logo_url")
+  website           String?
+  
+  // Contact information
+  email             String?
+  phoneNumber       String?  @map("phone_number")
+  
+  // Subscription and billing
+  subscriptionPlan  String   @default("free") @map("subscription_plan")
+  subscriptionStatus String   @default("active") @map("subscription_status")
+  billingEmail      String?  @map("billing_email")
+  
+  // Settings
+  settings          Json?    // Store organization settings
+  brandingConfig    Json?    @map("branding_config")
+  
+  // Meeting Provider Configuration
+  supportedMeetingProviders MeetingProvider[] @default([GOOGLE_MEET]) @map("supported_meeting_providers")
+  defaultMeetingProvider    MeetingProvider   @default(GOOGLE_MEET) @map("default_meeting_provider")
+  meetingProviderConfigs    Json?             @map("meeting_provider_configs") // Store API keys, settings per provider
+  
+  // Status
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  
+  // Relations
+  ownerId           String   @map("owner_id")
+  owner             User     @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members           OrganizationMember[]
+  meetingTypes      MeetingType[]
+
+  @@map("organizations")
+  @@index([slug])
+  @@index([subscriptionPlan])
+  @@index([ownerId])
+}
+
+model OrganizationMember {
+  id             String           @id @default(uuid())
+  userId         String           @map("user_id")
+  organizationId String           @map("organization_id")
+  role           OrganizationRole @default(MEMBER)
+  title          String?          // Job title
+  department     String?
+  
+  // Status
+  status         String           @default("active") // active, suspended, pending
+  joinedAt       DateTime         @default(now()) @map("joined_at")
+  invitedAt      DateTime?        @map("invited_at")
+  invitedBy      String?          @map("invited_by")
+  
+  // Relations
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("organization_members")
+  @@index([organizationId])
+  @@index([role])
+}
+
+// ============================================================================
+// MEETING TYPES & SCHEDULING
+// ============================================================================
+
+model MeetingType {
+  id                    String   @id @default(uuid())
+  organizationId        String   @map("organization_id")
+  hostId                String   @map("host_id")
+  name                  String
+  description           String?
+  duration              Int      // minutes
+  bufferBefore          Int      @default(0) @map("buffer_before")
+  bufferAfter           Int      @default(0) @map("buffer_after")
+  maxBookingsPerDay     Int?     @map("max_bookings_per_day")
+  requiresApproval      Boolean  @default(false) @map("requires_approval")
+  price                 Decimal? @db.Money
+  allowCancellation     Boolean  @default(true) @map("allow_cancellation")
+  allowRescheduling     Boolean  @default(true) @map("allow_rescheduling")
+  maxAttendees          Int?     @map("max_attendees")
+  requiredNoticeMinutes Int      @default(60) @map("required_notice_minutes")
+  
+  // Location
+  locationType          LocationType @default(ONLINE) @map("location_type")
+  locationDetails       Json?        @map("location_details")
+  
+  // Meeting Provider
+  meetingProvider       MeetingProvider @default(GOOGLE_MEET) @map("meeting_provider")
+  meetingProviderConfig Json?        @map("meeting_provider_config")
+  
+  // Settings
+  settings              Json?
+  customFields          Json?        @map("custom_fields")
+  
+  // Status
+  isActive              Boolean      @default(true) @map("is_active")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  host         User         @relation(fields: [hostId], references: [id])
+  bookings     Booking[]
+
+  @@map("meeting_types")
+  @@index([organizationId])
+  @@index([hostId])
+  @@index([isActive])
+}
+
+// ============================================================================
+// BOOKINGS & ATTENDEES
+// ============================================================================
+
+model Booking {
+  id              String        @id @default(uuid())
+  meetingTypeId   String        @map("meeting_type_id")
+  hostId          String        @map("host_id")
+  startTime       DateTime      @map("start_time")
+  endTime         DateTime      @map("end_time")
+  status          BookingStatus @default(CONFIRMED)
+  
+  // Meeting details
+  title           String?
+  description     String?
+  notes           String?       // Private notes for host
+  
+  // Location
+  locationType    LocationType  @default(ONLINE) @map("location_type")
+  locationDetails Json?         @map("location_details")
+  meetingUrl      String?       @map("meeting_url") // Zoom, Teams, etc.
+  
+  // Meeting Provider
+  meetingProvider MeetingProvider? @map("meeting_provider")
+  meetingProviderDetails Json?    @map("meeting_provider_details")
+  
+  // Custom form responses
+  formResponses   Json?         @map("form_responses")
+  
+  // Payment
+  paymentStatus   PaymentStatus @default(PENDING) @map("payment_status")
+  paymentAmount   Decimal?      @map("payment_amount") @db.Money
+  paymentId       String?       @map("payment_id")
+  
+  // Calendar integration
+  externalCalendarEventId String? @map("external_calendar_event_id")
+  calendarIntegrationId   String? @map("calendar_integration_id")
+  
+  // Timestamps
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  meetingType         MeetingType           @relation(fields: [meetingTypeId], references: [id])
+  host                User                  @relation("BookingHost", fields: [hostId], references: [id])
+  attendees           BookingAttendee[]
+  calendarIntegration CalendarIntegration?  @relation(fields: [calendarIntegrationId], references: [id])
+
+  @@map("bookings")
+  @@index([meetingTypeId])
+  @@index([hostId])
+  @@index([startTime])
+  @@index([status])
+}
+
+model BookingAttendee {
+  id            String         @id @default(uuid())
+  bookingId     String         @map("booking_id")
+  email         String
+  name          String
+  phoneNumber   String?        @map("phone_number")
+  status        AttendeeStatus @default(CONFIRMED)
+  
+  // User relation (optional - for registered users)
+  userId        String?        @map("user_id")
+  
+  // Timestamps
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  
+  // Relations
+  booking       Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user          User?          @relation(fields: [userId], references: [id])
+
+  @@map("booking_attendees")
+  @@index([bookingId])
+  @@index([email])
+  @@index([userId])
+}
+
+// ============================================================================
+// AVAILABILITY MANAGEMENT
+// ============================================================================
+
+model Availability {
+  id           String        @id @default(uuid())
+  userId       String        @map("user_id")
+  type         AvailabilityType @default(RECURRING)
+  
+  // Recurring availability
+  dayOfWeek    Int?          @map("day_of_week") // 0-6, null for date-specific
+  startTime    String        @map("start_time") // HH:MM format
+  endTime      String        @map("end_time")   // HH:MM format
+  
+  // Date-specific availability/blocking
+  specificDate DateTime?     @map("specific_date")
+  
+  // Blocking
+  isBlocked    Boolean       @default(false) @map("is_blocked")
+  blockReason  String?       @map("block_reason")
+  
+  // Metadata
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("availability")
+  @@index([userId])
+  @@index([dayOfWeek])
+  @@index([specificDate])
+}
+
+// ============================================================================
+// CALENDAR INTEGRATIONS
+// ============================================================================
+
+model CalendarIntegration {
+  id                String                @id @default(uuid())
+  userId            String                @map("user_id")
+  provider          CalendarProvider
+  name              String
+  description       String?
+  accessToken       String                @map("access_token") // Encrypted
+  refreshToken      String?               @map("refresh_token") // Encrypted
+  calendarId        String?               @map("calendar_id")
+  timezone          String?
+  
+  // Settings
+  isActive          Boolean               @default(true) @map("is_active")
+  syncEnabled       Boolean               @default(true) @map("sync_enabled")
+  conflictDetection Boolean               @default(true) @map("conflict_detection")
+  
+  // Metadata
+  lastSyncAt        DateTime?             @map("last_sync_at")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+  
+  // Relations
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@unique([userId, provider])
+  @@map("calendar_integrations")
+  @@index([userId])
+  @@index([provider])
+}
+
+// ============================================================================
+// EMAIL SETTINGS (SYSTEM ADMIN ONLY)
+// ============================================================================
+
+model EmailSettings {
+  id                String           @id @default(uuid())
+  provider          EmailProvider    @default(NODEMAILER)
+  isActive          Boolean          @default(false) @map("is_active")
+  
+  // Common settings
+  fromEmail         String           @map("from_email")
+  fromName          String           @map("from_name")
+  replyToEmail      String?          @map("reply_to_email")
+  
+  // Provider-specific configurations (encrypted)
+  smtpHost          String?          @map("smtp_host")
+  smtpPort          Int?             @map("smtp_port")
+  smtpSecure        Boolean?         @map("smtp_secure")
+  smtpUsername      String?          @map("smtp_username")
+  smtpPassword      String?          @map("smtp_password")
+  
+  // SendGrid settings
+  sendgridApiKey    String?          @map("sendgrid_api_key")
+  
+  // Zepto settings
+  zeptoApiKey       String?          @map("zepto_api_key")
+  zeptoApiUrl       String?          @map("zepto_api_url")
+  
+  // Test settings
+  lastTestedAt      DateTime?        @map("last_tested_at")
+  testResult        Json?            @map("test_result")
+  
+  // Metadata
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  createdBy         String           @map("created_by")
+  updatedBy         String?          @map("updated_by")
+  
+  // Relations
+  creator           User             @relation("EmailSettingsCreator", fields: [createdBy], references: [id])
+  updater           User?            @relation("EmailSettingsUpdater", fields: [updatedBy], references: [id])
+
+  @@map("email_settings")
+  @@index([provider])
+  @@index([isActive])
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum SystemRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum EmailProvider {
+  NODEMAILER
+  SENDGRID
+  ZEPTO
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum LocationType {
+  ONLINE
+  IN_PERSON
+  PHONE
+  CUSTOM
+}
+
+enum MeetingProvider {
+  GOOGLE_MEET
+  MICROSOFT_TEAMS
+  ZOOM
+  WEBEX
+  GOTOMEETING
+  CUSTOM
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  RESCHEDULED
+  COMPLETED
+  NO_SHOW
+}
+
+enum AttendeeStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIAL_REFUND
+}
+
+enum AvailabilityType {
+  RECURRING
+  DATE_SPECIFIC
+  BLOCKED
+}
+
+enum CalendarProvider {
+  GOOGLE
+  OUTLOOK
+  APPLE
+  EXCHANGE
+}
+
+enum CalendarSyncDirection {
+  TO_CALENDAR
+  FROM_CALENDAR
+  BOTH
+}
