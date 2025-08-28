@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
 import {
@@ -44,10 +44,13 @@ interface DashboardSidebarProps {
 export default function DashboardSidebar({ className }: DashboardSidebarProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout } = useAuthStore();
 
   const handleLogout = async () => {
     await logout();
+    // Redirect to home page after logout
+    router.push('/');
   };
 
   return (

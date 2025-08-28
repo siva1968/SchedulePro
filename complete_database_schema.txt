@@ -1,0 +1,1355 @@
+// SchedulePro Complete Database Schema
+// Supports all features from MVP through Enterprise and Global Scale
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER MANAGEMENT & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String?   @map("password_hash") // Null for SSO users
+  firstName         String?   @map("first_name")
+  lastName          String?   @map("last_name")
+  timezone          String    @default("UTC")
+  language          String    @default("en")
+  phoneNumber       String?   @map("phone_number")
+  profileImageUrl   String?   @map("profile_image_url")
+  
+  // Status and metadata
+  isActive          Boolean   @default(true) @map("is_active")
+  isEmailVerified   Boolean   @default(false) @map("is_email_verified")
+  lastLoginAt       DateTime? @map("last_login_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at") // Soft delete
+  
+  // Subscription and billing
+  subscriptionPlan  String    @default("free") @map("subscription_plan")
+  subscriptionStatus String   @default("active") @map("subscription_status")
+  trialEndsAt       DateTime? @map("trial_ends_at")
+  
+  // Relations
+  organizations     OrganizationMember[]
+  ownedOrganizations Organization[] @relation("OrganizationOwner")
+  meetingTypes      MeetingType[]
+  hostedBookings    Booking[] @relation("BookingHost")
+  attendedBookings  BookingAttendee[]
+  availabilities    Availability[]
+  integrations      CalendarIntegration[]
+  notifications     NotificationLog[]
+  behaviorEvents    UserBehaviorEvent[]
+  auditLogs         AuditLog[]
+  preferences       UserPreference?
+  sessions          UserSession[]
+  apiKeys           ApiKey[]
+  paymentMethods    PaymentMethod[]
+  transactions      Transaction[]
+
+  @@map("users")
+  @@index([email])
+  @@index([subscriptionPlan])
+  @@index([createdAt])
+}
+
+model UserPreference {
+  id                    String  @id @default(uuid())
+  userId                String  @unique @map("user_id")
+  
+  // Notification preferences
+  emailReminders        Boolean @default(true) @map("email_reminders")
+  smsReminders          Boolean @default(false) @map("sms_reminders")
+  pushNotifications     Boolean @default(true) @map("push_notifications")
+  
+  // UI preferences
+  theme                 String  @default("light")
+  dateFormat            String  @default("MM/DD/YYYY") @map("date_format")
+  timeFormat            String  @default("12h") @map("time_format")
+  weekStartsOn          Int     @default(0) @map("week_starts_on") // 0 = Sunday
+  
+  // Privacy settings
+  showInTeamDirectory   Boolean @default(true) @map("show_in_team_directory")
+  allowDirectBooking    Boolean @default(true) @map("allow_direct_booking")
+  requireApproval       Boolean @default(false) @map("require_approval")
+  
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model UserSession {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  sessionToken    String   @unique @map("session_token")
+  refreshToken    String?  @unique @map("refresh_token")
+  deviceInfo      String?  @map("device_info")
+  ipAddress       String?  @map("ip_address")
+  userAgent       String?  @map("user_agent")
+  expiresAt       DateTime @map("expires_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  lastAccessedAt  DateTime @default(now()) @map("last_accessed_at")
+  
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+  @@index([userId])
+  @@index([sessionToken])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// ORGANIZATION MANAGEMENT
+// ============================================================================
+
+model Organization {
+  id                String   @id @default(uuid())
+  name              String
+  slug              String   @unique // URL-friendly identifier
+  domain            String?  @unique // Custom domain
+  description       String?
+  logoUrl           String?  @map("logo_url")
+  website           String?
+  
+  // Contact information
+  email             String?
+  phoneNumber       String?  @map("phone_number")
+  address           Json?    // Store full address as JSON
+  
+  // Subscription and billing
+  subscriptionPlan  String   @default("free") @map("subscription_plan")
+  subscriptionStatus String   @default("active") @map("subscription_status")
+  billingEmail      String?  @map("billing_email")
+  
+  // Settings
+  settings          Json?    // Store organization settings
+  brandingConfig    Json?    @map("branding_config")
+  features          Json?    // Feature flags and limits
+  
+  // Status
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  
+  // Relations
+  ownerId           String   @map("owner_id")
+  owner             User     @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members           OrganizationMember[]
+  teams             Team[]
+  meetingTypes      MeetingType[]
+  customDomains     CustomDomain[]
+  webhooks          Webhook[]
+  ssoConfigurations SSOConfiguration[]
+  auditLogs         AuditLog[]
+  subscriptions     Subscription[]
+  customForms       CustomForm[]
+
+  @@map("organizations")
+  @@index([slug])
+  @@index([subscriptionPlan])
+  @@index([ownerId])
+}
+
+model OrganizationMember {
+  id             String           @id @default(uuid())
+  userId         String           @map("user_id")
+  organizationId String           @map("organization_id")
+  role           OrganizationRole @default(MEMBER)
+  title          String?          // Job title
+  department     String?
+  
+  // Status
+  status         String           @default("active") // active, suspended, pending
+  joinedAt       DateTime         @default(now()) @map("joined_at")
+  invitedAt      DateTime?        @map("invited_at")
+  invitedBy      String?          @map("invited_by")
+  
+  // Permissions (stored as JSON for flexibility)
+  permissions    Json?
+  
+  // Relations
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teamMemberships TeamMember[]
+
+  @@unique([userId, organizationId])
+  @@map("organization_members")
+  @@index([organizationId])
+  @@index([role])
+}
+
+// ============================================================================
+// TEAM MANAGEMENT
+// ============================================================================
+
+model Team {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  name           String
+  description    String?
+  color          String?        // Hex color for UI
+  isActive       Boolean        @default(true) @map("is_active")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  
+  // Relations
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        TeamMember[]
+  meetingTypes   MeetingType[]
+  roundRobinConfigs RoundRobinConfiguration[]
+
+  @@map("teams")
+  @@index([organizationId])
+}
+
+model TeamMember {
+  id                   String             @id @default(uuid())
+  teamId               String             @map("team_id")
+  organizationMemberId String             @map("organization_member_id")
+  role                 TeamRole           @default(MEMBER)
+  priority             Int                @default(1) // For round-robin priority
+  isActive             Boolean            @default(true) @map("is_active")
+  joinedAt             DateTime           @default(now()) @map("joined_at")
+  
+  // Relations
+  team                 Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  organizationMember   OrganizationMember @relation(fields: [organizationMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, organizationMemberId])
+  @@map("team_members")
+  @@index([teamId])
+}
+
+model RoundRobinConfiguration {
+  id                     String   @id @default(uuid())
+  teamId                 String   @map("team_id")
+  meetingTypeId          String   @map("meeting_type_id")
+  
+  // Configuration
+  algorithm              String   @default("sequential") // sequential, weighted, random
+  respectPriority        Boolean  @default(true) @map("respect_priority")
+  distributeEvenly       Boolean  @default(true) @map("distribute_evenly")
+  
+  // Tracking
+  lastAssignedMemberId   String?  @map("last_assigned_member_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  team                   Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  meetingType            MeetingType @relation(fields: [meetingTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, meetingTypeId])
+  @@map("round_robin_configurations")
+}
+
+// ============================================================================
+// MEETING TYPES & SCHEDULING
+// ============================================================================
+
+model MeetingType {
+  id                    String   @id @default(uuid())
+  organizationId        String   @map("organization_id")
+  hostId                String?  @map("host_id") // Null for team meetings
+  teamId                String?  @map("team_id") // For team-based meetings
+  
+  // Basic information
+  name                  String
+  description           String?
+  slug                  String   // URL-friendly identifier
+  
+  // Scheduling configuration
+  duration              Int      // Duration in minutes
+  bufferBefore          Int      @default(0) @map("buffer_before")
+  bufferAfter           Int      @default(0) @map("buffer_after")
+  maxBookingsPerDay     Int?     @map("max_bookings_per_day")
+  minAdvanceBooking     Int      @default(60) @map("min_advance_booking") // Minutes
+  maxAdvanceBooking     Int?     @map("max_advance_booking") // Minutes
+  
+  // Booking settings
+  requiresApproval      Boolean  @default(false) @map("requires_approval")
+  allowCancellation     Boolean  @default(true) @map("allow_cancellation")
+  allowRescheduling     Boolean  @default(true) @map("allow_rescheduling")
+  maxAttendees          Int      @default(1) @map("max_attendees")
+  
+  // Pricing
+  price                 Decimal? @db.Money
+  currency              String   @default("USD")
+  
+  // Location and format
+  locationType          LocationType @default(ONLINE) @map("location_type")
+  locationDetails       Json?    @map("location_details")
+  
+  // Customization
+  customFormId          String?  @map("custom_form_id")
+  confirmationMessage   String?  @map("confirmation_message")
+  cancellationMessage   String?  @map("cancellation_message")
+  
+  // Automation settings
+  sendReminders         Boolean  @default(true) @map("send_reminders")
+  reminderSettings      Json?    @map("reminder_settings")
+  
+  // Status and metadata
+  isActive              Boolean  @default(true) @map("is_active")
+  isPublic              Boolean  @default(true) @map("is_public")
+  color                 String?  // Hex color for calendar display
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  host                  User?        @relation(fields: [hostId], references: [id])
+  team                  Team?        @relation(fields: [teamId], references: [id])
+  customForm            CustomForm?  @relation(fields: [customFormId], references: [id])
+  bookings              Booking[]
+  roundRobinConfigs     RoundRobinConfiguration[]
+  availabilityRules     AvailabilityRule[]
+
+  @@unique([organizationId, slug])
+  @@map("meeting_types")
+  @@index([organizationId])
+  @@index([hostId])
+  @@index([teamId])
+  @@index([isActive, isPublic])
+}
+
+// ============================================================================
+// BOOKINGS & ATTENDEES
+// ============================================================================
+
+model Booking {
+  id                String        @id @default(uuid())
+  meetingTypeId     String        @map("meeting_type_id")
+  hostId            String        @map("host_id")
+  
+  // Booking details
+  title             String?       // Custom title override
+  startTime         DateTime      @map("start_time")
+  endTime           DateTime      @map("end_time")
+  timezone          String
+  
+  // Status and tracking
+  status            BookingStatus @default(CONFIRMED)
+  bookingReference  String        @unique @map("booking_reference") // Public reference
+  
+  // Location (overrides meeting type location)
+  locationType      LocationType? @map("location_type")
+  locationDetails   Json?         @map("location_details")
+  
+  // Attendee information
+  attendeeEmail     String        @map("attendee_email")
+  attendeeName      String        @map("attendee_name")
+  attendeePhone     String?       @map("attendee_phone")
+  attendeeTimezone  String?       @map("attendee_timezone")
+  
+  // Form responses and notes
+  formResponses     Json?         @map("form_responses")
+  notes             String?
+  internalNotes     String?       @map("internal_notes")
+  
+  // Cancellation and rescheduling
+  cancellationReason String?      @map("cancellation_reason")
+  cancelledAt       DateTime?     @map("cancelled_at")
+  cancelledBy       String?       @map("cancelled_by")
+  rescheduleCount   Int           @default(0) @map("reschedule_count")
+  originalBookingId String?       @map("original_booking_id")
+  
+  // Payment information
+  paymentStatus     PaymentStatus @default(PENDING) @map("payment_status")
+  paymentIntentId   String?       @map("payment_intent_id")
+  amount            Decimal?      @db.Money
+  currency          String?
+  
+  // Metadata
+  metadata          Json?         // Additional custom data
+  source            String?       // How the booking was created
+  utmSource         String?       @map("utm_source")
+  utmMedium         String?       @map("utm_medium")
+  utmCampaign       String?       @map("utm_campaign")
+  
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  meetingType       MeetingType   @relation(fields: [meetingTypeId], references: [id])
+  host              User          @relation("BookingHost", fields: [hostId], references: [id])
+  originalBooking   Booking?      @relation("BookingReschedule", fields: [originalBookingId], references: [id])
+  reschedules       Booking[]     @relation("BookingReschedule")
+  attendees         BookingAttendee[]
+  reminders         ReminderSchedule[]
+  webhookEvents     WebhookEvent[]
+  behaviorEvents    UserBehaviorEvent[]
+  calendarEvents    CalendarEvent[]
+
+  @@map("bookings")
+  @@index([meetingTypeId])
+  @@index([hostId])
+  @@index([startTime])
+  @@index([status])
+  @@index([attendeeEmail])
+  @@index([bookingReference])
+  @@index([createdAt])
+}
+
+model BookingAttendee {
+  id        String  @id @default(uuid())
+  bookingId String  @map("booking_id")
+  userId    String? @map("user_id") // Null for external attendees
+  
+  // Attendee details
+  email     String
+  name      String
+  phone     String?
+  timezone  String?
+  
+  // Status
+  status    AttendeeStatus @default(CONFIRMED)
+  joinedAt  DateTime?      @map("joined_at")
+  leftAt    DateTime?      @map("left_at")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user      User?   @relation(fields: [userId], references: [id])
+
+  @@unique([bookingId, email])
+  @@map("booking_attendees")
+  @@index([bookingId])
+  @@index([userId])
+}
+
+// ============================================================================
+// AVAILABILITY MANAGEMENT
+// ============================================================================
+
+model Availability {
+  id              String      @id @default(uuid())
+  userId          String      @map("user_id")
+  
+  // Time configuration
+  dayOfWeek       Int?        @map("day_of_week") // 0-6, null for date-specific
+  startTime       String      @map("start_time") // HH:MM format
+  endTime         String      @map("end_time")   // HH:MM format
+  
+  // Date configuration
+  effectiveFrom   DateTime?   @map("effective_from")
+  effectiveTo     DateTime?   @map("effective_to")
+  specificDate    DateTime?   @map("specific_date") // For date-specific availability
+  
+  // Type and status
+  type            AvailabilityType @default(AVAILABLE)
+  isRecurring     Boolean     @default(true) @map("is_recurring")
+  priority        Int         @default(0) // Higher priority overrides lower
+  
+  // Metadata
+  title           String?     // For blocked time
+  description     String?
+  
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  
+  // Relations
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("availability")
+  @@index([userId])
+  @@index([dayOfWeek])
+  @@index([specificDate])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+model AvailabilityRule {
+  id              String      @id @default(uuid())
+  meetingTypeId   String      @map("meeting_type_id")
+  
+  // Rule configuration
+  name            String
+  dayOfWeek       Int?        @map("day_of_week") // 0-6, null for all days
+  startTime       String?     @map("start_time") // HH:MM format
+  endTime         String?     @map("end_time")   // HH:MM format
+  
+  // Date range
+  effectiveFrom   DateTime?   @map("effective_from")
+  effectiveTo     DateTime?   @map("effective_to")
+  
+  // Rule type and settings
+  ruleType        AvailabilityRuleType @map("rule_type")
+  maxBookings     Int?        @map("max_bookings") // Max bookings during this rule
+  isActive        Boolean     @default(true) @map("is_active")
+  
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  
+  // Relations
+  meetingType     MeetingType @relation(fields: [meetingTypeId], references: [id], onDelete: Cascade)
+
+  @@map("availability_rules")
+  @@index([meetingTypeId])
+}
+
+// ============================================================================
+// CALENDAR INTEGRATIONS
+// ============================================================================
+
+model CalendarIntegration {
+  id              String                @id @default(uuid())
+  userId          String                @map("user_id")
+  
+  // Provider information
+  provider        CalendarProvider
+  providerUserId  String                @map("provider_user_id") // User ID from provider
+  email           String                // Calendar email
+  
+  // Authentication
+  accessToken     String                @map("access_token") // Encrypted
+  refreshToken    String?               @map("refresh_token") // Encrypted
+  tokenExpiresAt  DateTime?             @map("token_expires_at")
+  
+  // Calendar selection
+  calendarId      String                @map("calendar_id")
+  calendarName    String                @map("calendar_name")
+  isPrimary       Boolean               @default(false) @map("is_primary")
+  
+  // Sync configuration
+  syncDirection   CalendarSyncDirection @default(BIDIRECTIONAL) @map("sync_direction")
+  syncConflicts   Boolean               @default(true) @map("sync_conflicts")
+  syncEvents      Boolean               @default(true) @map("sync_events")
+  
+  // Status
+  isActive        Boolean               @default(true) @map("is_active")
+  lastSyncAt      DateTime?             @map("last_sync_at")
+  syncStatus      String?               @map("sync_status")
+  syncError       String?               @map("sync_error")
+  
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  
+  // Relations
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarEvents  CalendarEvent[]
+
+  @@unique([userId, provider, calendarId])
+  @@map("calendar_integrations")
+  @@index([userId])
+  @@index([provider])
+  @@index([lastSyncAt])
+}
+
+model CalendarEvent {
+  id                    String              @id @default(uuid())
+  calendarIntegrationId String              @map("calendar_integration_id")
+  bookingId             String?             @map("booking_id")
+  
+  // Event details
+  providerEventId       String              @map("provider_event_id")
+  title                 String
+  description           String?
+  startTime             DateTime            @map("start_time")
+  endTime               DateTime            @map("end_time")
+  isAllDay              Boolean             @default(false) @map("is_all_day")
+  
+  // Status and metadata
+  status                CalendarEventStatus @default(CONFIRMED)
+  lastModified          DateTime?           @map("last_modified")
+  etag                  String?             // For optimistic locking
+  
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  
+  // Relations
+  calendarIntegration   CalendarIntegration @relation(fields: [calendarIntegrationId], references: [id], onDelete: Cascade)
+  booking               Booking?            @relation(fields: [bookingId], references: [id])
+
+  @@unique([calendarIntegrationId, providerEventId])
+  @@map("calendar_events")
+  @@index([bookingId])
+  @@index([startTime])
+}
+
+// ============================================================================
+// CUSTOM FORMS & RESPONSES
+// ============================================================================
+
+model CustomForm {
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  
+  // Form details
+  name           String
+  description    String?
+  isActive       Boolean       @default(true) @map("is_active")
+  
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fields         FormField[]
+  meetingTypes   MeetingType[]
+
+  @@map("custom_forms")
+  @@index([organizationId])
+}
+
+model FormField {
+  id           String        @id @default(uuid())
+  customFormId String        @map("custom_form_id")
+  
+  // Field configuration
+  name         String        // Internal name
+  label        String        // Display label
+  type         FormFieldType
+  placeholder  String?
+  helpText     String?       @map("help_text")
+  
+  // Validation
+  isRequired   Boolean       @default(false) @map("is_required")
+  validation   Json?         // Validation rules as JSON
+  options      Json?         // For select/radio/checkbox fields
+  
+  // Display
+  order        Int           @default(0)
+  isVisible    Boolean       @default(true) @map("is_visible")
+  
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  customForm   CustomForm    @relation(fields: [customFormId], references: [id], onDelete: Cascade)
+
+  @@map("form_fields")
+  @@index([customFormId])
+  @@index([order])
+}
+
+// ============================================================================
+// NOTIFICATIONS & REMINDERS
+// ============================================================================
+
+model NotificationTemplate {
+  id             String               @id @default(uuid())
+  organizationId String               @map("organization_id")
+  
+  // Template details
+  name           String
+  type           NotificationType
+  channel        NotificationChannel
+  
+  // Content
+  subject        String?              // For email
+  bodyText       String               @map("body_text")
+  bodyHtml       String?              @map("body_html")
+  
+  // Configuration
+  variables      Json?                // Available template variables
+  isActive       Boolean              @default(true) @map("is_active")
+  isDefault      Boolean              @default(false) @map("is_default")
+  
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  
+  // Relations
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  notifications  NotificationLog[]
+
+  @@map("notification_templates")
+  @@index([organizationId])
+  @@index([type])
+}
+
+model ReminderSchedule {
+  id         String            @id @default(uuid())
+  bookingId  String            @map("booking_id")
+  
+  // Reminder configuration
+  type       NotificationType
+  channel    NotificationChannel
+  sendAt     DateTime          @map("send_at")
+  offset     Int               // Minutes before booking
+  
+  // Status
+  status     ReminderStatus    @default(PENDING)
+  sentAt     DateTime?         @map("sent_at")
+  error      String?
+  
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+  
+  // Relations
+  booking    Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("reminder_schedules")
+  @@index([bookingId])
+  @@index([sendAt])
+  @@index([status])
+}
+
+model NotificationLog {
+  id              String              @id @default(uuid())
+  userId          String              @map("user_id")
+  templateId      String?             @map("template_id")
+  
+  // Notification details
+  type            NotificationType
+  channel         NotificationChannel
+  recipient       String              // Email, phone, or user ID
+  
+  // Content
+  subject         String?
+  content         String
+  
+  // Status and delivery
+  status          NotificationStatus  @default(PENDING)
+  sentAt          DateTime?           @map("sent_at")
+  deliveredAt     DateTime?           @map("delivered_at")
+  openedAt        DateTime?           @map("opened_at")
+  clickedAt       DateTime?           @map("clicked_at")
+  
+  // Metadata
+  provider        String?             // Email/SMS provider
+  providerId      String?             @map("provider_id") // Provider's message ID
+  error           String?
+  metadata        Json?
+  
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  
+  // Relations
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template        NotificationTemplate? @relation(fields: [templateId], references: [id])
+
+  @@map("notification_logs")
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([sentAt])
+}
+
+// ============================================================================
+// WEBHOOKS & INTEGRATIONS
+// ============================================================================
+
+model Webhook {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  
+  // Webhook configuration
+  name           String
+  url            String
+  secret         String         // For signature verification
+  events         String[]       // Array of subscribed events
+  
+  // Status and metadata
+  isActive       Boolean        @default(true) @map("is_active")
+  lastTriggeredAt DateTime?     @map("last_triggered_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  
+  // Relations
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  events         WebhookEvent[]
+
+  @@map("webhooks")
+  @@index([organizationId])
+}
+
+model WebhookEvent {
+  id              String             @id @default(uuid())
+  webhookId       String             @map("webhook_id")
+  bookingId       String?            @map("booking_id")
+  
+  // Event details
+  eventType       String             @map("event_type")
+  eventData       Json               @map("event_data")
+  
+  // Delivery status
+  status          WebhookEventStatus @default(PENDING)
+  attempts        Int                @default(0)
+  lastAttemptAt   DateTime?          @map("last_attempt_at")
+  nextAttemptAt   DateTime?          @map("next_attempt_at")
+  
+  // Response details
+  responseStatus  Int?               @map("response_status")
+  responseBody    String?            @map("response_body")
+  errorMessage    String?            @map("error_message")
+  
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  
+  // Relations
+  webhook         Webhook            @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  booking         Booking?           @relation(fields: [bookingId], references: [id])
+
+  @@map("webhook_events")
+  @@index([webhookId])
+  @@index([status])
+  @@index([nextAttemptAt])
+}
+
+// ============================================================================
+// PAYMENTS & BILLING
+// ============================================================================
+
+model PaymentMethod {
+  id               String        @id @default(uuid())
+  userId           String        @map("user_id")
+  
+  // Payment method details
+  type             PaymentMethodType
+  provider         String        // stripe, paypal, etc.
+  providerMethodId String        @map("provider_method_id")
+  
+  // Card details (for display only)
+  last4            String?
+  brand            String?
+  expiryMonth      Int?          @map("expiry_month")
+  expiryYear       Int?          @map("expiry_year")
+  
+  // Status
+  isDefault        Boolean       @default(false) @map("is_default")
+  isActive         Boolean       @default(true) @map("is_active")
+  
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions     Transaction[]
+
+  @@map("payment_methods")
+  @@index([userId])
+}
+
+model Transaction {
+  id                String           @id @default(uuid())
+  userId            String           @map("user_id")
+  paymentMethodId   String?          @map("payment_method_id")
+  
+  // Transaction details
+  amount            Decimal          @db.Money
+  currency          String           @default("USD")
+  description       String?
+  
+  // Provider details
+  provider          String           // stripe, paypal, etc.
+  providerTxnId     String           @map("provider_txn_id")
+  providerStatus    String           @map("provider_status")
+  
+  // Status and type
+  status            TransactionStatus
+  type              TransactionType
+  
+  // Metadata
+  metadata          Json?
+  failureReason     String?          @map("failure_reason")
+  
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  
+  // Relations
+  user              User             @relation(fields: [userId], references: [id])
+  paymentMethod     PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
+
+  @@map("transactions")
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Subscription {
+  id               String              @id @default(uuid())
+  organizationId   String              @map("organization_id")
+  
+  // Subscription details
+  plan             String
+  status           SubscriptionStatus
+  currentPeriodStart DateTime          @map("current_period_start")
+  currentPeriodEnd   DateTime          @map("current_period_end")
+  
+  // Pricing
+  amount           Decimal             @db.Money
+  currency         String              @default("USD")
+  interval         String              // month, year
+  
+  // Provider details
+  provider         String              // stripe, etc.
+  providerSubId    String              @map("provider_sub_id")
+  
+  // Trial
+  trialStart       DateTime?           @map("trial_start")
+  trialEnd         DateTime?           @map("trial_end")
+  
+  // Cancellation
+  cancelAtPeriodEnd Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt       DateTime?           @map("canceled_at")
+  
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  
+  // Relations
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+  @@index([organizationId])
+  @@index([status])
+}
+
+// ============================================================================
+// ANALYTICS & AI/ML
+// ============================================================================
+
+model UserBehaviorEvent {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id") // Null for anonymous users
+  bookingId  String?  @map("booking_id")
+  
+  // Event details
+  eventType  String   @map("event_type") // page_view, booking_started, etc.
+  eventData  Json?    @map("event_data")
+  
+  // Context
+  sessionId  String?  @map("session_id")
+  userAgent  String?  @map("user_agent")
+  ipAddress  String?  @map("ip_address")
+  referrer   String?
+  
+  // UTM tracking
+  utmSource    String? @map("utm_source")
+  utmMedium    String? @map("utm_medium")
+  utmCampaign  String? @map("utm_campaign")
+  utmTerm      String? @map("utm_term")
+  utmContent   String? @map("utm_content")
+  
+  timestamp  DateTime @default(now())
+  
+  // Relations
+  user       User?    @relation(fields: [userId], references: [id])
+  booking    Booking? @relation(fields: [bookingId], references: [id])
+
+  @@map("user_behavior_events")
+  @@index([userId])
+  @@index([eventType])
+  @@index([timestamp])
+  @@index([sessionId])
+}
+
+model MLModel {
+  id           String        @id @default(uuid())
+  name         String
+  type         String        // recommendation, prediction, etc.
+  version      String
+  
+  // Model details
+  algorithm    String
+  features     Json          // Feature definitions
+  parameters   Json          // Model parameters
+  
+  // Performance metrics
+  accuracy     Float?
+  precision    Float?
+  recall       Float?
+  f1Score      Float?        @map("f1_score")
+  
+  // Status
+  status       String        // training, active, deprecated
+  trainedAt    DateTime?     @map("trained_at")
+  deployedAt   DateTime?     @map("deployed_at")
+  
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  predictions  MLPrediction[]
+
+  @@map("ml_models")
+  @@index([type])
+  @@index([status])
+}
+
+model MLPrediction {
+  id         String   @id @default(uuid())
+  modelId    String   @map("model_id")
+  userId     String?  @map("user_id")
+  bookingId  String?  @map("booking_id")
+  
+  // Prediction details
+  inputData  Json     @map("input_data")
+  prediction Json     // Prediction result
+  confidence Float?   // Confidence score
+  
+  // Status
+  status     String   @default("pending") // pending, used, expired
+  usedAt     DateTime? @map("used_at")
+  
+  createdAt  DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  model      MLModel  @relation(fields: [modelId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@map("ml_predictions")
+  @@index([modelId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// ENTERPRISE FEATURES
+// ============================================================================
+
+model SSOConfiguration {
+  id               String      @id @default(uuid())
+  organizationId   String      @map("organization_id")
+  
+  // SSO details
+  provider         String      // saml, oidc, oauth2
+  name             String      // Display name
+  
+  // Configuration
+  entityId         String?     @map("entity_id") // SAML
+  ssoUrl           String      @map("sso_url")
+  x509Certificate  String?     @map("x509_certificate")
+  
+  // OIDC/OAuth2
+  clientId         String?     @map("client_id")
+  clientSecret     String?     @map("client_secret") // Encrypted
+  authUrl          String?     @map("auth_url")
+  tokenUrl         String?     @map("token_url")
+  userInfoUrl      String?     @map("user_info_url")
+  
+  // Attribute mapping
+  attributeMapping Json?       @map("attribute_mapping")
+  
+  // Status
+  isActive         Boolean     @default(true) @map("is_active")
+  
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+  
+  // Relations
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("sso_configurations")
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String?      @map("organization_id")
+  userId         String?      @map("user_id")
+  
+  // Action details
+  action         String       // created, updated, deleted, etc.
+  resourceType   String       @map("resource_type") // booking, user, etc.
+  resourceId     String       @map("resource_id")
+  
+  // Change details
+  oldValues      Json?        @map("old_values")
+  newValues      Json?        @map("new_values")
+  
+  // Context
+  ipAddress      String?      @map("ip_address")
+  userAgent      String?      @map("user_agent")
+  sessionId      String?      @map("session_id")
+  
+  timestamp      DateTime     @default(now())
+  
+  // Relations
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  user           User?        @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+  @@index([organizationId])
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([timestamp])
+}
+
+model ApiKey {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  
+  // Key details
+  name           String
+  keyHash        String   @unique @map("key_hash") // Hashed version
+  prefix         String   // First few chars for identification
+  
+  // Permissions
+  scopes         String[] // Array of permitted scopes
+  
+  // Usage tracking
+  lastUsedAt     DateTime? @map("last_used_at")
+  usageCount     Int       @default(0) @map("usage_count")
+  
+  // Status
+  isActive       Boolean   @default(true) @map("is_active")
+  expiresAt      DateTime? @map("expires_at")
+  
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+  @@index([userId])
+  @@index([keyHash])
+  @@index([lastUsedAt])
+}
+
+// ============================================================================
+// CUSTOMIZATION & BRANDING
+// ============================================================================
+
+model CustomDomain {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  
+  // Domain details
+  domain         String       @unique
+  subdomain      String?      // For subdomains
+  
+  // SSL configuration
+  sslCertificate String?      @map("ssl_certificate")
+  sslPrivateKey  String?      @map("ssl_private_key")
+  sslStatus      String       @default("pending") @map("ssl_status")
+  
+  // DNS verification
+  dnsRecord      String?      @map("dns_record")
+  isVerified     Boolean      @default(false) @map("is_verified")
+  verifiedAt     DateTime?    @map("verified_at")
+  
+  // Status
+  isActive       Boolean      @default(false) @map("is_active")
+  
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  
+  // Relations
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("custom_domains")
+  @@index([organizationId])
+  @@index([domain])
+}
+
+// ============================================================================
+// LOCALIZATION & GLOBAL
+// ============================================================================
+
+model Language {
+  id          String @id @default(uuid())
+  code        String @unique // ISO 639-1 code
+  name        String
+  nativeName  String @map("native_name")
+  isActive    Boolean @default(true) @map("is_active")
+  
+  // Relations
+  translations Translation[]
+
+  @@map("languages")
+}
+
+model Translation {
+  id         String   @id @default(uuid())
+  languageId String   @map("language_id")
+  key        String   // Translation key
+  value      String   // Translated value
+  namespace  String?  // Optional namespace
+  
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  language   Language @relation(fields: [languageId], references: [id], onDelete: Cascade)
+
+  @@unique([languageId, key, namespace])
+  @@map("translations")
+  @@index([key])
+  @@index([namespace])
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+}
+
+enum TeamRole {
+  LEAD
+  MEMBER
+}
+
+enum LocationType {
+  ONLINE
+  IN_PERSON
+  PHONE
+  CUSTOM
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+  RESCHEDULED
+  PENDING_APPROVAL
+}
+
+enum AttendeeStatus {
+  CONFIRMED
+  DECLINED
+  TENTATIVE
+  NO_RESPONSE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum AvailabilityType {
+  AVAILABLE
+  BLOCKED
+  TENTATIVE
+}
+
+enum AvailabilityRuleType {
+  ALLOW
+  BLOCK
+  LIMIT
+}
+
+enum CalendarProvider {
+  GOOGLE
+  OUTLOOK
+  APPLE
+  CALDAV
+}
+
+enum CalendarSyncDirection {
+  INBOUND_ONLY
+  OUTBOUND_ONLY
+  BIDIRECTIONAL
+}
+
+enum CalendarEventStatus {
+  CONFIRMED
+  TENTATIVE
+  CANCELLED
+}
+
+enum FormFieldType {
+  TEXT
+  EMAIL
+  PHONE
+  NUMBER
+  TEXTAREA
+  SELECT
+  RADIO
+  CHECKBOX
+  DATE
+  TIME
+  FILE
+  URL
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  BOOKING_RESCHEDULED
+  REMINDER
+  NO_SHOW
+  FOLLOW_UP
+  WELCOME
+  INVITATION
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+  WEBHOOK
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  BOUNCED
+  OPENED
+  CLICKED
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum WebhookEventStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethodType {
+  CREDIT_CARD
+  DEBIT_CARD
+  BANK_ACCOUNT
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum TransactionType {
+  PAYMENT
+  REFUND
+  SUBSCRIPTION
+  ONE_TIME
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  UNPAID
+  TRIALING
+}
