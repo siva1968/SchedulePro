@@ -49,6 +49,25 @@ export class BookingsService {
       throw new NotFoundException('Meeting type not found or not accessible');
     }
 
+    // Validate that the host user is active and available for bookings
+    const hostUser = await this.prisma.user.findUnique({
+      where: { id: hostId },
+      select: { 
+        id: true, 
+        isActive: true, 
+        firstName: true, 
+        lastName: true 
+      },
+    });
+
+    if (!hostUser) {
+      throw new NotFoundException('Host user not found');
+    }
+
+    if (!hostUser.isActive) {
+      throw new BadRequestException('This user is currently not accepting bookings. Please try again later.');
+    }
+
     // Validate and potentially fix end time based on meeting type duration
     const startDateTime = new Date(createBookingDto.startTime);
     const providedEndDateTime = new Date(createBookingDto.endTime);
@@ -631,6 +650,25 @@ export class BookingsService {
 
     const hostId = meetingType.hostId;
 
+    // Validate that the host user is active and available for bookings
+    const hostUser = await this.prisma.user.findUnique({
+      where: { id: hostId },
+      select: { 
+        id: true, 
+        isActive: true, 
+        firstName: true, 
+        lastName: true 
+      },
+    });
+
+    if (!hostUser) {
+      throw new NotFoundException('Host user not found');
+    }
+
+    if (!hostUser.isActive) {
+      throw new BadRequestException('This user is currently not accepting bookings. Please try again later.');
+    }
+
     // Validate end time based on meeting duration
     const startTime = new Date(createBookingDto.startTime);
     const providedEndTime = new Date(createBookingDto.endTime);
@@ -650,6 +688,9 @@ export class BookingsService {
       });
       finalEndTime = expectedEndTime;
     }
+
+    // Check for time conflicts with existing bookings
+    await this.checkTimeConflicts(hostId, startTime, finalEndTime);
 
     // Validate time slot availability
     await this.validateTimeSlot(hostId, startTime, finalEndTime, meetingType);
@@ -693,6 +734,33 @@ export class BookingsService {
   }
 
   async getAvailableSlots(hostId: string, date: string, duration: number): Promise<any> {
+    // First validate that the host user is active
+    const hostUser = await this.prisma.user.findUnique({
+      where: { id: hostId },
+      select: { 
+        id: true, 
+        isActive: true, 
+        firstName: true, 
+        lastName: true 
+      },
+    });
+
+    if (!hostUser) {
+      return { 
+        availableSlots: [],
+        message: 'Host user not found.',
+        reason: 'HOST_NOT_FOUND'
+      };
+    }
+
+    if (!hostUser.isActive) {
+      return { 
+        availableSlots: [],
+        message: 'This user is currently not accepting bookings. Please try again later.',
+        reason: 'HOST_INACTIVE'
+      };
+    }
+
     const selectedDate = new Date(date);
     const dayOfWeek = selectedDate.getDay();
     
