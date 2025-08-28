@@ -5,6 +5,8 @@ import { useBookingStore } from '@/stores/booking-store';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import CreateBookingModal from '@/components/CreateBookingModal';
+import ViewBookingModal from '@/components/ViewBookingModal';
+import EditBookingModal from '@/components/EditBookingModal';
 import DashboardPageHeader from '@/components/DashboardPageHeader';
 import DashboardPageContainer from '@/components/DashboardPageContainer';
 
@@ -38,6 +40,9 @@ export default function BookingsPage() {
   });
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<any>(null);
 
   useEffect(() => {
     fetchBookings();
@@ -66,6 +71,26 @@ export default function BookingsPage() {
     } catch (error) {
       console.error('Failed to cancel booking:', error);
     }
+  };
+
+  const handleViewBooking = (booking: any) => {
+    setSelectedBooking(booking);
+    setIsViewModalOpen(true);
+  };
+
+  const handleEditBooking = (booking: any) => {
+    setSelectedBooking(booking);
+    setIsEditModalOpen(true);
+  };
+
+  const handleModalClose = () => {
+    setSelectedBooking(null);
+    setIsViewModalOpen(false);
+    setIsEditModalOpen(false);
+  };
+
+  const handleEditSuccess = () => {
+    fetchBookings(); // Refresh the bookings list
   };
 
   const formatDateTime = (dateString: string) => {
@@ -151,7 +176,7 @@ export default function BookingsPage() {
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[booking.status as keyof typeof statusColors]}`}>
                       {booking.status}
                     </span>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" onClick={() => handleViewBooking(booking)}>
                       View
                     </Button>
                   </div>
@@ -241,10 +266,10 @@ export default function BookingsPage() {
                     </div>
                   </div>
                   <div className="flex space-x-2 ml-4">
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" onClick={() => handleViewBooking(booking)}>
                       View
                     </Button>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" onClick={() => handleEditBooking(booking)}>
                       Edit
                     </Button>
                     {booking.status === 'CONFIRMED' && (
@@ -295,6 +320,19 @@ export default function BookingsPage() {
           setIsCreateModalOpen(false);
           fetchBookings();
         }}
+      />
+
+      <ViewBookingModal
+        isOpen={isViewModalOpen}
+        onClose={handleModalClose}
+        booking={selectedBooking}
+      />
+
+      <EditBookingModal
+        isOpen={isEditModalOpen}
+        onClose={handleModalClose}
+        booking={selectedBooking}
+        onSuccess={handleEditSuccess}
       />
       </DashboardPageContainer>
     </>

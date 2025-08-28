@@ -83,8 +83,8 @@ export default function DashboardPage() {
 
     const loadDashboardStats = async (token: string) => {
       try {
-        // Fetch all bookings
-        const bookingsResponse = await fetch('/api/bookings', {
+        // Fetch all bookings from the backend API
+        const bookingsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/bookings`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
