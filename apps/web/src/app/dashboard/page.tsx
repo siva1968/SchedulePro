@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { apiClient } from '@/lib/api-client';
+import { useUserTimezone } from '@/hooks/useUserTimezone';
+import { formatDateInUserTimezone, formatTimeInUserTimezone } from '@/lib/timezone';
 import DashboardPageHeader from '@/components/DashboardPageHeader';
 import DashboardPageContainer from '@/components/DashboardPageContainer';
 
@@ -51,6 +53,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { logout } = useAuthStore();
+  const userTimezone = useUserTimezone();
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -316,10 +319,10 @@ export default function DashboardPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-gray-900">
-                          {new Date(booking.startTime).toLocaleDateString()}
+                          {formatDateInUserTimezone(booking.startTime, userTimezone)}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {new Date(booking.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatTimeInUserTimezone(booking.startTime, userTimezone, { includeTimezone: true })}
                         </p>
                       </div>
                     </div>

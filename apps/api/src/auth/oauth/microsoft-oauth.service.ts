@@ -34,13 +34,13 @@ export class MicrosoftOAuthService {
     this.clientId = this.configService.get('MICROSOFT_CLIENT_ID');
     this.clientSecret = this.configService.get('MICROSOFT_CLIENT_SECRET');
     this.tenant = this.configService.get('MICROSOFT_TENANT_ID') || 'common';
-    this.redirectUri = `${this.configService.get('API_URL')}/api/v1/oauth/microsoft/callback`;
+    this.redirectUri = `${this.configService.get('API_URL')}/api/v1/calendar/oauth/outlook/callback`;
   }
 
   /**
    * Generate Microsoft OAuth authorization URL
    */
-  getAuthUrl(userId: string): string {
+  getAuthUrl(state: string): string {
     const scopes = [
       'https://graph.microsoft.com/Calendars.ReadWrite',
       'https://graph.microsoft.com/User.Read',
@@ -53,7 +53,7 @@ export class MicrosoftOAuthService {
       `redirect_uri=${encodeURIComponent(this.redirectUri)}&` +
       `response_mode=query&` +
       `scope=${encodeURIComponent(scopes)}&` +
-      `state=${userId}&` +
+      `state=${state}&` +
       `prompt=consent`;
 
     return authUrl;
@@ -64,7 +64,9 @@ export class MicrosoftOAuthService {
    */
   async handleCallback(code: string, state: string) {
     try {
-      const userId = state;
+      // Decode state parameter to get userId and integrationName
+      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      const { userId, integrationName } = decodedState;
 
       // Exchange code for tokens
       const tokenResponse = await this.exchangeCodeForTokens(code);
@@ -83,14 +85,15 @@ export class MicrosoftOAuthService {
         data: {
           userId,
           provider: 'OUTLOOK',
-          name: `Microsoft Outlook - ${primaryCalendar?.name || 'Calendar'}`,
-          description: 'Microsoft Outlook integration via OAuth',
+          name: integrationName || `Microsoft Outlook - ${primaryCalendar?.name || 'Calendar'}`,
+          description: `Microsoft Outlook integration for ${user.mail || user.userPrincipalName}`,
           accessToken: tokenResponse.access_token,
           refreshToken: tokenResponse.refresh_token,
           calendarId: primaryCalendar?.id || 'default',
           isActive: true,
           syncEnabled: true,
           conflictDetection: true,
+          timezone: primaryCalendar?.timeZone || 'UTC',
         },
       });
 

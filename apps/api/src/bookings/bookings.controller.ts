@@ -120,8 +120,9 @@ export class PublicBookingsController {
   async getAvailableSlots(
     @Query('meetingTypeId') meetingTypeId: string,
     @Query('date') date: string,
+    @Query('timezone') timezone?: string,
   ) {
-    return this.bookingsService.getAvailableSlotsForMeetingType(meetingTypeId, date);
+    return this.bookingsService.getAvailableSlotsForMeetingType(meetingTypeId, date, timezone);
   }
 
   @Get('meeting-type/:id/providers')
@@ -131,5 +132,73 @@ export class PublicBookingsController {
   @ApiResponse({ status: 404, description: 'Meeting type not found' })
   async getMeetingProviders(@Param('id') meetingTypeId: string) {
     return this.bookingsService.getMeetingProvidersForMeetingType(meetingTypeId);
+  }
+
+  @Get(':id/reschedule')
+  @Public()
+  @ApiOperation({ summary: 'Get booking details for reschedule form (public)' })
+  @ApiResponse({ status: 200, description: 'Booking details retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  async getBookingForReschedule(
+    @Param('id') bookingId: string,
+    @Query('token') token: string,
+  ) {
+    // Verify token and return booking details
+    const booking = await this.bookingsService.getBookingForPublicAction(bookingId, token);
+    return {
+      id: booking.id,
+      meetingType: booking.meetingType,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      attendees: booking.attendees,
+      host: booking.host,
+    };
+  }
+
+  @Post(':id/reschedule')
+  @Public()
+  @ApiOperation({ summary: 'Reschedule a booking (public)' })
+  @ApiResponse({ status: 200, description: 'Booking rescheduled successfully' })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  @ApiResponse({ status: 400, description: 'Invalid token or time conflict' })
+  async rescheduleBookingPublic(
+    @Param('id') bookingId: string,
+    @Body() body: { token: string; startTime: string; endTime: string },
+  ) {
+    return this.bookingsService.rescheduleBookingPublic(bookingId, body.token, body.startTime, body.endTime);
+  }
+
+  @Get(':id/cancel')
+  @Public()
+  @ApiOperation({ summary: 'Get booking details for cancel form (public)' })
+  @ApiResponse({ status: 200, description: 'Booking details retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  async getBookingForCancel(
+    @Param('id') bookingId: string,
+    @Query('token') token: string,
+  ) {
+    // Verify token and return booking details
+    const booking = await this.bookingsService.getBookingForPublicAction(bookingId, token);
+    return {
+      id: booking.id,
+      meetingType: booking.meetingType,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      attendees: booking.attendees,
+      host: booking.host,
+    };
+  }
+
+  @Post(':id/cancel')
+  @Public()
+  @ApiOperation({ summary: 'Cancel a booking (public)' })
+  @ApiResponse({ status: 200, description: 'Booking cancelled successfully' })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  @ApiResponse({ status: 400, description: 'Invalid token' })
+  async cancelBookingPublic(
+    @Param('id') bookingId: string,
+    @Body() body: { token: string; reason?: string },
+  ) {
+    return this.bookingsService.cancelBookingPublic(bookingId, body.token, body.reason);
   }
 }

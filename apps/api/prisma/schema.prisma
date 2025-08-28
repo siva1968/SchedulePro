@@ -324,6 +324,11 @@ model CalendarIntegration {
   calendarId        String?               @map("calendar_id")
   timezone          String?
   
+  // CalDAV-specific fields
+  serverUrl         String?               @map("server_url") // For CalDAV
+  username          String?               @map("username") // For CalDAV
+  password          String?               @map("password") // Encrypted, for CalDAV
+  
   // Settings
   isActive          Boolean               @default(true) @map("is_active")
   syncEnabled       Boolean               @default(true) @map("sync_enabled")
@@ -462,8 +467,7 @@ enum AvailabilityType {
 enum CalendarProvider {
   GOOGLE
   OUTLOOK
-  APPLE
-  EXCHANGE
+  CALDAV
 }
 
 enum CalendarSyncDirection {

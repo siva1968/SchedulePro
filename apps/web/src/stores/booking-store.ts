@@ -87,6 +87,8 @@ interface BookingState {
   updateBooking: (id: string, data: any) => Promise<void>;
   cancelBooking: (id: string, reason?: string) => Promise<void>;
   rescheduleBooking: (id: string, startTime: string, endTime: string) => Promise<void>;
+  syncBookingToCalendar: (id: string) => Promise<any>;
+  removeBookingFromCalendar: (id: string) => Promise<any>;
   clearError: () => void;
   reset: () => void;
 }
@@ -229,6 +231,62 @@ export const useBookingStore = create<BookingState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to reschedule booking',
         isLoading: false,
       });
+    }
+  },
+
+  syncBookingToCalendar: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch(`/api/calendar/sync/booking/${id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to sync booking to calendar');
+      }
+
+      const result = await response.json();
+      set({ isLoading: false });
+      return result;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to sync booking to calendar',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  removeBookingFromCalendar: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch(`/api/calendar/sync/booking/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to remove booking from calendar');
+      }
+
+      const result = await response.json();
+      set({ isLoading: false });
+      return result;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to remove booking from calendar',
+        isLoading: false,
+      });
+      throw error;
     }
   },
 

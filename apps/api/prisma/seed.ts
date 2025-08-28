@@ -6,9 +6,27 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Create test user
+  // Create super admin user
   const hashedPassword = await bcrypt.hash('password123', 10);
   
+  const superAdminUser = await prisma.user.upsert({
+    where: { email: 'admin@schedulepro.com' },
+    update: {},
+    create: {
+      email: 'admin@schedulepro.com',
+      passwordHash: hashedPassword,
+      firstName: 'Super',
+      lastName: 'Admin',
+      timezone: 'America/New_York',
+      isEmailVerified: true,
+      subscriptionPlan: 'pro',
+      systemRole: 'SUPER_ADMIN',
+    },
+  });
+
+  console.log(`✅ Created super admin user: ${superAdminUser.email}`);
+
+  // Create test user
   const testUser = await prisma.user.upsert({
     where: { email: 'test@schedulepro.com' },
     update: {},
@@ -198,10 +216,13 @@ async function main() {
   console.log('🎉 Database seeding completed!');
   console.log('');
   console.log('🔐 Test Credentials:');
-  console.log(`Email: ${testUser.email}`);
-  console.log('Password: password123');
+  console.log(`👤 Super Admin: ${superAdminUser.email}`);
+  console.log(`👤 Test User: ${testUser.email}`);
+  console.log('🔑 Password: password123');
   console.log('');
   console.log(`🏢 Organization: ${testOrg.name} (${testOrg.slug})`);
+  console.log('');
+  console.log('📧 Next: Configure email settings via API or Prisma Studio at http://localhost:5555');
 }
 
 main()

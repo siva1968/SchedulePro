@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useBookingStore } from '@/stores/booking-store';
+import { useUserTimezone } from '@/hooks/useUserTimezone';
+import { formatDateTimeInUserTimezone, getTimeRangeInUserTimezone } from '@/lib/timezone';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import CreateBookingModal from '@/components/CreateBookingModal';
@@ -31,6 +33,8 @@ export default function BookingsPage() {
     fetchBookings,
     fetchUpcomingBookings,
     cancelBooking,
+    syncBookingToCalendar,
+    removeBookingFromCalendar,
   } = useBookingStore();
 
   const [filter, setFilter] = useState({
@@ -43,6 +47,8 @@ export default function BookingsPage() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
+  const [syncingBookings, setSyncingBookings] = useState<Set<string>>(new Set());
+  const userTimezone = useUserTimezone();
 
   useEffect(() => {
     fetchBookings();
@@ -93,8 +99,44 @@ export default function BookingsPage() {
     fetchBookings(); // Refresh the bookings list
   };
 
+  const handleSyncToCalendar = async (bookingId: string) => {
+    setSyncingBookings(prev => new Set(prev).add(bookingId));
+    try {
+      await syncBookingToCalendar(bookingId);
+      // Show success message (you can add a toast notification here)
+      console.log('Booking synced to calendar successfully');
+    } catch (error) {
+      console.error('Failed to sync booking to calendar:', error);
+      // Show error message (you can add a toast notification here)
+    } finally {
+      setSyncingBookings(prev => {
+        const next = new Set(prev);
+        next.delete(bookingId);
+        return next;
+      });
+    }
+  };
+
+  const handleRemoveFromCalendar = async (bookingId: string) => {
+    setSyncingBookings(prev => new Set(prev).add(bookingId));
+    try {
+      await removeBookingFromCalendar(bookingId);
+      // Show success message (you can add a toast notification here)
+      console.log('Booking removed from calendar successfully');
+    } catch (error) {
+      console.error('Failed to remove booking from calendar:', error);
+      // Show error message (you can add a toast notification here)
+    } finally {
+      setSyncingBookings(prev => {
+        const next = new Set(prev);
+        next.delete(bookingId);
+        return next;
+      });
+    }
+  };
+
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
+    return formatDateTimeInUserTimezone(dateString, userTimezone, { includeTimezone: true });
   };
 
   if (isLoading) {
@@ -265,7 +307,7 @@ export default function BookingsPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex space-x-2 ml-4">
+                  <div className="flex flex-wrap gap-2 ml-4">
                     <Button variant="outline" size="sm" onClick={() => handleViewBooking(booking)}>
                       View
                     </Button>
@@ -273,14 +315,34 @@ export default function BookingsPage() {
                       Edit
                     </Button>
                     {booking.status === 'CONFIRMED' && (
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => handleCancelBooking(booking.id)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        Cancel
-                      </Button>
+                      <>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleSyncToCalendar(booking.id)}
+                          disabled={syncingBookings.has(booking.id)}
+                          className="text-blue-600 hover:text-blue-700"
+                        >
+                          {syncingBookings.has(booking.id) ? 'Syncing...' : 'Sync to Calendar'}
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleRemoveFromCalendar(booking.id)}
+                          disabled={syncingBookings.has(booking.id)}
+                          className="text-orange-600 hover:text-orange-700"
+                        >
+                          {syncingBookings.has(booking.id) ? 'Removing...' : 'Remove from Calendar'}
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleCancelBooking(booking.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          Cancel
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>

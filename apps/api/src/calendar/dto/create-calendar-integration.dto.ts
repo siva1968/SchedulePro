@@ -1,9 +1,9 @@
 import { IsString, IsEnum, IsOptional, IsBoolean } from 'class-validator';
 
 export enum CalendarProvider {
-  GOOGLE = 'google',
-  OUTLOOK = 'outlook',
-  CALDAV = 'caldav',
+  GOOGLE = 'GOOGLE',
+  OUTLOOK = 'OUTLOOK',
+  CALDAV = 'CALDAV',
 }
 
 export class CreateCalendarIntegrationDto {

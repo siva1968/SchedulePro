@@ -6,6 +6,9 @@ interface User {
   email: string;
   firstName: string | null;
   lastName: string | null;
+  timezone?: string;
+  phoneNumber?: string;
+  profileImageUrl?: string;
   organizations: Array<{
     id: string;
     name: string;

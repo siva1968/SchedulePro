@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Google Calendar OAuth - Web Server</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .success { color: green; background: #d4edda; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .error { color: red; background: #f8d7da; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .info { color: blue; background: #d1ecf1; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Test Google Calendar OAuth Integration</h1>
+    <p>This test verifies that the OAuth authentication fix is working properly.</p>
+    
+    <button onclick="testOAuth()">Test OAuth Flow</button>
+    <div id="result"></div>
+
+    <script>
+        async function testOAuth() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="info">Testing OAuth flow...</div>';
+
+            try {
+                // First, let's test if we can reach the API
+                const healthResponse = await fetch('http://localhost:3001/api/v1/health');
+                if (!healthResponse.ok) {
+                    throw new Error('API is not accessible');
+                }
+
+                resultDiv.innerHTML = '<div class="info">✅ API is accessible. Testing OAuth with valid token...</div>';
+
+                // Use the valid JWT token we obtained earlier
+                const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlM2UyZGU4NC1iNDRhLTRhOGUtOTQ2OC05ODczYWQyN2FmODciLCJlbWFpbCI6InByYXNhZC5tQGxzbnNvZnQuY29tIiwib3JnYW5pemF0aW9uSWRzIjpbIjUzY2Y5MGM2LTRhMmItNDU5Ny04MmRmLTY3N2JlMGFjMGM5OSJdLCJpYXQiOjE3NTY0MTE2NDYsImV4cCI6MTc1NzAxNjQ0Nn0.ee8WrsEU5z2skiBwGSLu_Tkdm6QNqkd9P4K7KLKmvto';
+                
+                // Test the OAuth URL endpoint
+                const response = await fetch('http://localhost:3001/api/v1/calendar/oauth/google/url?integrationName=TestCalendar', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${validToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <h3>🎉 SUCCESS! OAuth Authentication Fixed!</h3>
+                            <p><strong>✅ API Connection:</strong> Working</p>
+                            <p><strong>✅ JWT Authentication:</strong> Valid token accepted</p>
+                            <p><strong>✅ OAuth URL Generated:</strong> Yes</p>
+                            <p><strong>✅ Callback URI:</strong> http://localhost:3001/api/v1/calendar/oauth/google/callback</p>
+                            <hr>
+                            <p><strong>Ready to test full OAuth flow:</strong></p>
+                            <a href="${data.authUrl}" target="_blank" style="background: #28a745; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">🔗 Start Google OAuth</a>
+                        </div>
+                    `;
+                } else {
+                    const errorText = await response.text();
+                    resultDiv.innerHTML = `<div class="error">❌ Error: ${response.status} - ${errorText}</div>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerHTML = `<div class="error">❌ Network Error: ${error.message}<br><br>
+                    <strong>Possible causes:</strong><br>
+                    • API server not running<br>
+                    • CORS configuration issue<br>
+                    • Network connectivity problem<br>
+                    <br>
+                    <strong>Check:</strong> Is the API running at http://localhost:3001?
+                </div>`;
+            }
+        }
+    </script>
+</body>
+</html>

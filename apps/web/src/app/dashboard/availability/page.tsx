@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAvailabilityStore } from '@/stores/availability-store';
+import { useUserTimezone } from '@/hooks/useUserTimezone';
+import { formatDateInUserTimezone } from '@/lib/timezone';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +13,7 @@ import DashboardPageContainer from '@/components/DashboardPageContainer';
 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function AvailabilityPage() {
+  const userTimezone = useUserTimezone();
   const {
     availability,
     isLoading,
@@ -328,7 +331,7 @@ export default function AvailabilityPage() {
                   <div key={slot.id} className="flex justify-between items-center py-2 border-b">
                     <div>
                       <div className="font-medium">
-                        {new Date(slot.specificDate!).toLocaleDateString()}
+                        {formatDateInUserTimezone(slot.specificDate!, userTimezone)}
                       </div>
                       <div className="text-sm text-gray-600">
                         {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
@@ -361,7 +364,7 @@ export default function AvailabilityPage() {
                       <div className="font-medium">
                         {slot.type === 'RECURRING' 
                           ? dayNames[slot.dayOfWeek!] 
-                          : new Date(slot.specificDate!).toLocaleDateString()
+                          : formatDateInUserTimezone(slot.specificDate!, userTimezone)
                         }
                       </div>
                       <div className="text-sm text-gray-600">

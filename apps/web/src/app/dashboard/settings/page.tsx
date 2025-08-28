@@ -5,7 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/auth-store';
+import TimezoneSelect from '@/components/TimezoneSelect';
+import { User, Clock, Globe, Settings as SettingsIcon } from 'lucide-react';
 
 const MEETING_PROVIDERS = [
   {
@@ -52,20 +55,94 @@ interface MeetingProviderConfig {
   meetingProviderConfigs: Record<string, any>;
 }
 
+interface UserProfileData {
+  firstName: string;
+  lastName: string;
+  timezone: string;
+  phoneNumber: string;
+}
+
 export default function SettingsPage() {
   const [config, setConfig] = useState<MeetingProviderConfig | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfileData>({
+    firstName: '',
+    lastName: '',
+    timezone: '',
+    phoneNumber: ''
+  });
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const { user, token } = useAuthStore();
+  const { user, token, setUser } = useAuthStore();
 
   useEffect(() => {
     fetchMeetingProviderConfig();
+    fetchUserProfile();
   }, []);
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 5000);
+  };
+
+  const fetchUserProfile = async () => {
+    try {
+      setProfileLoading(true);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/auth/profile`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch user profile');
+      }
+
+      const data = await response.json();
+      setUserProfile({
+        firstName: data.firstName || '',
+        lastName: data.lastName || '',
+        timezone: data.timezone || 'UTC',
+        phoneNumber: data.phoneNumber || ''
+      });
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      showMessage('error', 'Failed to load user profile');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const updateUserProfile = async () => {
+    try {
+      setProfileSaving(true);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/auth/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(userProfile),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update user profile');
+      }
+
+      const updatedUser = await response.json();
+      
+      // Update the user in the auth store with the new data
+      setUser(updatedUser);
+      
+      showMessage('success', 'Profile updated successfully');
+    } catch (error) {
+      console.error('Error updating user profile:', error);
+      showMessage('error', 'Failed to update profile');
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   const fetchMeetingProviderConfig = async () => {
@@ -172,7 +249,7 @@ export default function SettingsPage() {
     });
   };
 
-  if (loading) {
+  if (loading || profileLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -209,18 +286,90 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-3xl font-bold">Settings</h1>
         <p className="text-gray-600 mt-2">
-          Configure your meeting provider preferences for bookings
+          Manage your profile, timezone preferences and meeting provider settings
         </p>
       </div>
 
+      {/* User Profile Settings */}
       <Card>
         <CardHeader>
-          <CardTitle>Meeting Providers</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-5 w-5" />
+            Profile Settings
+          </CardTitle>
           <CardDescription>
-            Choose which meeting providers are available for your bookings. Your clients will be able to select from the enabled providers when booking appointments.
+            Manage your personal information and timezone preferences
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="firstName">First Name</Label>
+              <Input
+                id="firstName"
+                value={userProfile.firstName}
+                onChange={(e) => setUserProfile(prev => ({ ...prev, firstName: e.target.value }))}
+                placeholder="Enter your first name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lastName">Last Name</Label>
+              <Input
+                id="lastName"
+                value={userProfile.lastName}
+                onChange={(e) => setUserProfile(prev => ({ ...prev, lastName: e.target.value }))}
+                placeholder="Enter your last name"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="phoneNumber">Phone Number (Optional)</Label>
+            <Input
+              id="phoneNumber"
+              value={userProfile.phoneNumber}
+              onChange={(e) => setUserProfile(prev => ({ ...prev, phoneNumber: e.target.value }))}
+              placeholder="Enter your phone number"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <TimezoneSelect
+              value={userProfile.timezone}
+              onChange={(timezone) => setUserProfile(prev => ({ ...prev, timezone }))}
+              label="Default Timezone"
+              showCurrentTime={true}
+            />
+            <p className="text-xs text-gray-500">
+              This timezone will be used for all your bookings and availability settings. 
+              Attendees will see times in their own timezone.
+            </p>
+          </div>
+
+          <Button 
+            onClick={updateUserProfile} 
+            disabled={profileSaving}
+            className="w-full md:w-auto"
+          >
+            {profileSaving ? 'Saving...' : 'Save Profile'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Meeting Provider Settings */}
+      {config ? (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <SettingsIcon className="h-5 w-5" />
+                Meeting Providers
+              </CardTitle>
+              <CardDescription>
+                Choose which meeting providers are available for your bookings. Your clients will be able to select from the enabled providers when booking appointments.
+              </CardDescription>
+            </CardHeader>
+          <CardContent className="space-y-6">
           {MEETING_PROVIDERS.map((provider) => {
             const isEnabled = config.supportedMeetingProviders.includes(provider.id);
             const isDefault = config.defaultMeetingProvider === provider.id;
@@ -290,8 +439,17 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+        </>
+      ) : (
+        <div className="text-center py-8">
+          <p className="text-gray-600">Failed to load meeting provider settings</p>
+          <Button onClick={fetchMeetingProviderConfig} className="mt-4">
+            Retry
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

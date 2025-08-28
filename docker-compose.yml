@@ -51,7 +51,29 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
       - API_PORT=3001
+      - API_URL=http://localhost:3001
       - FRONTEND_URL=http://localhost:3000
+      # Email Configuration
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_FROM=noreply@schedulepro.com
+      # SendGrid Configuration
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - SENDGRID_FROM_EMAIL=support@equitybrix.com
+      - SENDGRID_FROM_NAME=Equitybrix Support
+      # ZeptoMail Configuration
+      - ZEPTO_API_KEY=your-zepto-api-key
+      - ZEPTO_API_URL=https://api.zeptomail.in/v1.1/email
+      - ZEPTO_FROM_EMAIL=support@equitybrix.com
+      - ZEPTO_FROM_NAME=Equitybrix Support
+      # OAuth Configuration
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
+      # Encryption
+      - ENCRYPTION_KEY=schedulepro-calendar-encrypt-key32
+      - CALENDAR_ENCRYPTION_KEY=schedulepro-calendar-encrypt-key32
     depends_on:
       postgres:
         condition: service_healthy

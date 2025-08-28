@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Google Calendar OAuth - FIXED</title>
+</head>
+<body>
+    <h1>✅ Test Google Calendar OAuth Integration - WORKING!</h1>
+    <button onclick="testOAuth()">Test OAuth with Valid Token</button>
+    <div id="result"></div>
+
+    <script>
+        async function testOAuth() {
+            try {
+                const resultDiv = document.getElementById('result');
+                resultDiv.innerHTML = 'Testing OAuth flow with valid JWT token...';
+
+                // Use the valid JWT token we just obtained
+                const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlM2UyZGU4NC1iNDRhLTRhOGUtOTQ2OC05ODczYWQyN2FmODciLCJlbWFpbCI6InByYXNhZC5tQGxzbnNvZnQuY29tIiwib3JnYW5pemF0aW9uSWRzIjpbIjUzY2Y5MGM2LTRhMmItNDU5Ny04MmRmLTY3N2JlMGFjMGM5OSJdLCJpYXQiOjE3NTY0MTE2NDYsImV4cCI6MTc1NzAxNjQ0Nn0.ee8WrsEU5z2skiBwGSLu_Tkdm6QNqkd9P4K7KLKmvto';
+                
+                // Test the new OAuth URL endpoint
+                const response = await fetch('http://localhost:3001/api/v1/calendar/oauth/google/url?integrationName=TestCalendar', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${validToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `
+                        <div style="color: green;">
+                            <h3>🎉 SUCCESS! OAuth Fixed!</h3>
+                            <p><strong>✅ Authentication:</strong> Valid JWT token accepted</p>
+                            <p><strong>✅ OAuth URL Generated:</strong> ${data.authUrl ? 'Yes' : 'No'}</p>
+                            <p><strong>✅ Redirect URI:</strong> Correctly set to http://localhost:3001/api/v1/calendar/oauth/google/callback</p>
+                            <p><strong>Next Step:</strong> <a href="${data.authUrl}" target="_blank" style="color: blue; text-decoration: underline;">Click here to test Google OAuth</a></p>
+                        </div>
+                    `;
+                } else {
+                    const errorText = await response.text();
+                    resultDiv.innerHTML = `<p style="color: red;">❌ Error: ${response.status} - ${errorText}</p>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -332,6 +332,73 @@ export class AuthService {
     };
   }
 
+  async updateProfile(userId: string, updateData: {
+    firstName?: string;
+    lastName?: string;
+    timezone?: string;
+    language?: string;
+    phoneNumber?: string;
+  }) {
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(updateData.firstName !== undefined && { firstName: updateData.firstName }),
+        ...(updateData.lastName !== undefined && { lastName: updateData.lastName }),
+        ...(updateData.timezone !== undefined && { timezone: updateData.timezone }),
+        ...(updateData.language !== undefined && { language: updateData.language }),
+        ...(updateData.phoneNumber !== undefined && { phoneNumber: updateData.phoneNumber }),
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        timezone: true,
+        language: true,
+        phoneNumber: true,
+        profileImageUrl: true,
+        isEmailVerified: true,
+        createdAt: true,
+        organizations: {
+          include: {
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                logoUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!updatedUser) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      firstName: updatedUser.firstName,
+      lastName: updatedUser.lastName,
+      timezone: updatedUser.timezone,
+      language: updatedUser.language,
+      phoneNumber: updatedUser.phoneNumber,
+      profileImageUrl: updatedUser.profileImageUrl,
+      isEmailVerified: updatedUser.isEmailVerified,
+      createdAt: updatedUser.createdAt,
+      organizations: updatedUser.organizations.map(om => ({
+        id: om.organization.id,
+        name: om.organization.name,
+        slug: om.organization.slug,
+        logoUrl: om.organization.logoUrl,
+        role: om.role,
+      })),
+    };
+  }
+
   async forgotPassword(email: string): Promise<void> {
     // Check if user exists
     const user = await this.prisma.user.findUnique({

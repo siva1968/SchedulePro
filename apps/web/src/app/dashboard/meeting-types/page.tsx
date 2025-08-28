@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
+import { useUserTimezone } from '@/hooks/useUserTimezone';
+import { formatDateInUserTimezone } from '@/lib/timezone';
 import { apiClient } from '@/lib/api-client';
 import CreateMeetingTypeModal from '@/components/CreateMeetingTypeModal';
 import EditMeetingTypeModal from '@/components/EditMeetingTypeModal';
@@ -28,6 +30,7 @@ export default function MeetingTypesPage() {
   const [editingMeetingTypeId, setEditingMeetingTypeId] = useState<string | null>(null);
   const router = useRouter();
   const { logout } = useAuthStore();
+  const userTimezone = useUserTimezone();
 
   const loadMeetingTypes = async () => {
     try {
@@ -213,7 +216,7 @@ export default function MeetingTypesPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(meetingType.createdAt).toLocaleDateString()}
+                        {formatDateInUserTimezone(meetingType.createdAt, userTimezone)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex justify-end space-x-2">

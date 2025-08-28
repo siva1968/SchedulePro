@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react';
 import { X, Calendar, Clock, Users, MapPin, User, CreditCard } from 'lucide-react';
+import { useUserTimezone } from '@/hooks/useUserTimezone';
+import { getTimeRangeInUserTimezone } from '@/lib/timezone';
 
 interface Booking {
   id: string;
@@ -55,6 +57,8 @@ const statusColors = {
 };
 
 export default function ViewBookingModal({ isOpen, onClose, booking }: ViewBookingModalProps) {
+  const userTimezone = useUserTimezone();
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -70,13 +74,9 @@ export default function ViewBookingModal({ isOpen, onClose, booking }: ViewBooki
   if (!isOpen || !booking) return null;
 
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    return getTimeRangeInUserTimezone(dateString, booking.endTime, userTimezone, { 
+      includeTimezone: true, 
+      sameDay: true 
     });
   };
 

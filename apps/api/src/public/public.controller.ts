@@ -98,6 +98,7 @@ export class PublicController {
     @Param('slug') slug: string,
     @Param('meetingTypeId') meetingTypeId: string,
     @Query('date') date: string,
+    @Query('timezone') timezone?: string,
   ) {
     try {
       // Validate date format
@@ -163,6 +164,10 @@ export class PublicController {
 
       // Generate time slots from 9 AM to 5 PM, excluding conflicts
       const availableSlots = [];
+      
+      // Use the user's timezone if provided, otherwise default to UTC
+      const userTimezone = timezone || 'UTC';
+      
       for (let hour = 9; hour < 17; hour++) {
         const startTime = new Date(selectedDate);
         startTime.setHours(hour, 0, 0, 0);
@@ -188,16 +193,25 @@ export class PublicController {
 
         // Only add the slot if there's no conflict
         if (!hasConflict) {
+          // Format times in user's timezone
+          const startTimeInTZ = startTime.toLocaleString('en-US', {
+            timeZone: userTimezone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          });
+          
+          const endTimeInTZ = endTime.toLocaleString('en-US', {
+            timeZone: userTimezone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          });
+          
           availableSlots.push({
             startTime: startTime.toISOString(),
             endTime: endTime.toISOString(),
-            label: `${startTime.toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })} - ${endTime.toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })}`,
+            label: `${startTimeInTZ} - ${endTimeInTZ}`,
           });
         }
       }

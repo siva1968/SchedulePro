@@ -107,15 +107,20 @@ export default function UnifiedBookingPage() {
     }
   };
 
-  const fetchAvailableSlots = async (meetingTypeId: string, date: string) => {
+  const fetchAvailableSlots = async (meetingTypeId: string, date: string, timezone?: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/v1/public/organizations/${organizationSlug}/meeting-types/${meetingTypeId}/availability?date=${date}`);
+      const selectedTimezone = timezone || formData.timezone || getSystemTimezone();
+      const url = `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${meetingTypeId}&date=${date}&timezone=${encodeURIComponent(selectedTimezone)}`;
+      console.log('🕐 PublicBooking: Fetching slots from:', url);
+      
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error('Failed to fetch availability');
       }
 
       const data = await response.json();
+      console.log('🕐 PublicBooking: Received slots:', data.availableSlots);
       setAvailableSlots(data.availableSlots || []);
       
       // Show helpful message if no slots are available
@@ -123,7 +128,7 @@ export default function UnifiedBookingPage() {
         toast.info(data.message);
       }
     } catch (error) {
-      console.error('Failed to fetch available slots:', error);
+      console.error('🕐 PublicBooking: Failed to fetch available slots:', error);
       toast.error('Failed to load available time slots');
     }
   };
@@ -149,10 +154,12 @@ export default function UnifiedBookingPage() {
   };
 
   const handleTimezoneChange = (timezone: string) => {
-    setFormData(prev => ({ ...prev, timezone }));
+    console.log('🕐 PublicBooking: Timezone changing from', formData.timezone, 'to', timezone);
+    setFormData(prev => ({ ...prev, timezone, selectedSlot: null }));
     // Re-fetch available slots if a date is selected to show times in the new timezone
     if (selectedMeetingType && formData.selectedDate) {
-      fetchAvailableSlots(selectedMeetingType.id, formData.selectedDate);
+      console.log('🕐 PublicBooking: Re-fetching slots with new timezone:', timezone);
+      fetchAvailableSlots(selectedMeetingType.id, formData.selectedDate, timezone);
     }
   };
 
@@ -384,17 +391,6 @@ export default function UnifiedBookingPage() {
                     </div>
 
                     <div>
-                      <Label htmlFor="selectedDate">Select Date *</Label>
-                      <Input
-                        id="selectedDate"
-                        type="date"
-                        value={formData.selectedDate}
-                        onChange={(e) => handleDateChange(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]}
-                      />
-                    </div>
-
-                    <div>
                       <Label>
                         <Globe className="inline w-4 h-4 mr-1" />
                         Timezone *
@@ -407,24 +403,38 @@ export default function UnifiedBookingPage() {
                       </div>
                     </div>
 
-                    {formData.selectedDate && (
+                    {formData.timezone && (
+                      <div>
+                        <Label htmlFor="selectedDate">Select Date *</Label>
+                        <Input
+                          id="selectedDate"
+                          type="date"
+                          value={formData.selectedDate}
+                          onChange={(e) => handleDateChange(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                        />
+                      </div>
+                    )}
+
+                    {formData.selectedDate && formData.timezone && (
                       <div>
                         <Label>Available Time Slots *</Label>
-                        <div className="grid gap-2 mt-2">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                           {availableSlots.length > 0 ? (
                             availableSlots.map((slot, index) => (
                               <Button
                                 key={index}
                                 variant={formData.selectedSlot?.startTime === slot.startTime ? "default" : "outline"}
-                                className="justify-start"
+                                className="justify-center text-sm px-3 py-2"
                                 onClick={() => handleSlotSelect(slot)}
                               >
-                                <CalendarIcon className="w-4 h-4 mr-2" />
                                 {slot.label}
                               </Button>
                             ))
                           ) : (
-                            <p className="text-gray-500 text-sm">No available time slots for this date.</p>
+                            <div className="col-span-full text-center py-4 text-gray-500">
+                              No available time slots for this date.
+                            </div>
                           )}
                         </div>
                       </div>

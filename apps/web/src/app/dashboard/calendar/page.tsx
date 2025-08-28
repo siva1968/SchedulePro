@@ -43,17 +43,88 @@ export default function CalendarIntegrationsPage() {
 
   useEffect(() => {
     fetchIntegrations();
+    
+    // Check for OAuth callback parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const success = urlParams.get('success');
+    const oauthError = urlParams.get('error');
+    const integrationId = urlParams.get('integration');
+    
+    if (success === 'true') {
+      clearError();
+      // Show success message and optionally scroll to the new integration
+      const successMessage = integrationId 
+        ? `Google Calendar integration created successfully!`
+        : 'Calendar integration completed successfully!';
+        
+      // You could use a toast notification here instead
+      setTimeout(() => {
+        alert(successMessage);
+      }, 100);
+      
+      // Clean up URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (oauthError) {
+      clearError();
+      let errorMessage = 'Authentication failed. Please try again.';
+      
+      switch (oauthError) {
+        case 'access_denied':
+          errorMessage = 'Access denied. Please grant necessary permissions to connect your calendar.';
+          break;
+        case 'authentication_failed':
+          errorMessage = 'Authentication failed. Please check your credentials and try again.';
+          break;
+        case 'missing_parameters':
+          errorMessage = 'Invalid authentication response. Please try again.';
+          break;
+      }
+      
+      useCalendarStore.setState({ error: errorMessage });
+      
+      // Clean up URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, [fetchIntegrations]);
 
   // OAuth connection handler
   const handleOAuthConnect = async (provider: string) => {
     setIsConnecting(true);
     try {
-      // In a real implementation, this would redirect to OAuth URL
-      const oauthUrl = `/api/calendar/oauth/${provider}`;
-      window.location.href = oauthUrl;
+      const integrationName = formData.name || `${provider.charAt(0).toUpperCase() + provider.slice(1)} Calendar`;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      
+      // Get the access token from localStorage
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+      
+      // Make authenticated request to get OAuth URL
+      const response = await fetch(`${apiUrl}/api/v1/calendar/oauth/${provider}/url?integrationName=${encodeURIComponent(integrationName)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to initiate OAuth' }));
+        throw new Error(errorData.message || 'Failed to initiate OAuth');
+      }
+      
+      const data = await response.json();
+      if (data.authUrl) {
+        // Redirect to the OAuth URL
+        window.location.href = data.authUrl;
+      } else {
+        throw new Error('No OAuth URL received from server');
+      }
     } catch (error) {
       console.error('OAuth connection failed:', error);
+      clearError();
+      useCalendarStore.setState({ error: error instanceof Error ? error.message : 'Failed to connect to calendar' });
       setIsConnecting(false);
     }
   };

@@ -6,7 +6,9 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { EmailService } from '../email/email.service';
 import { CreateBookingDto, UpdateBookingDto, BookingQueryDto } from './dto';
+import { zonedTimeToUtc, utcToZonedTime, format } from 'date-fns-tz';
 
 enum BookingStatus {
   PENDING = 'PENDING',
@@ -19,7 +21,10 @@ enum BookingStatus {
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+  ) {}
 
   async create(createBookingDto: CreateBookingDto, hostId: string): Promise<any> {
     const { attendees, ...bookingData } = createBookingDto;
@@ -122,7 +127,7 @@ export class BookingsService {
     );
 
     try {
-      return await this.prisma.booking.create({
+      const booking = await this.prisma.booking.create({
         data: {
           ...bookingData,
           startTime: new Date(createBookingDto.startTime),
@@ -149,6 +154,19 @@ export class BookingsService {
           },
         },
       });
+
+      // Send email notifications
+      try {
+        await Promise.all([
+          this.emailService.sendBookingConfirmation(booking),
+          this.emailService.sendBookingNotificationToHost(booking),
+        ]);
+      } catch (emailError) {
+        console.error('Failed to send booking notification emails:', emailError);
+        // Don't fail the booking creation if email fails
+      }
+
+      return booking;
     } catch (error) {
       if (error.code === 'P2002') {
         throw new ConflictException('Booking conflict detected');
@@ -319,7 +337,7 @@ export class BookingsService {
       throw new BadRequestException('Cannot cancel a completed booking');
     }
 
-    return await this.prisma.booking.update({
+    const updatedBooking = await this.prisma.booking.update({
       where: { id },
       data: {
         status: BookingStatus.CANCELLED,
@@ -338,6 +356,17 @@ export class BookingsService {
         },
       },
     });
+
+    // Send cancellation email notifications
+    try {
+      const cancelledBy = booking.hostId === userId ? 'host' : 'attendee';
+      await this.emailService.sendBookingCancellation(updatedBooking, cancelledBy, reason);
+    } catch (emailError) {
+      console.error('Failed to send cancellation notification emails:', emailError);
+      // Don't fail the cancellation if email fails
+    }
+
+    return updatedBooking;
   }
 
   async reschedule(
@@ -358,13 +387,14 @@ export class BookingsService {
       throw new BadRequestException('Cannot reschedule cancelled or completed booking');
     }
 
+    const oldStartTime = new Date(booking.startTime);
     const newStart = new Date(newStartTime);
     const newEnd = new Date(newEndTime);
 
     // Check for time conflicts (excluding current booking)
     await this.checkTimeConflicts(booking.hostId, newStart, newEnd, id);
 
-    return await this.prisma.booking.update({
+    const updatedBooking = await this.prisma.booking.update({
       where: { id },
       data: {
         startTime: newStart,
@@ -384,6 +414,17 @@ export class BookingsService {
         },
       },
     });
+
+    // Send reschedule email notifications
+    try {
+      const rescheduledBy = booking.hostId === userId ? 'host' : 'attendee';
+      await this.emailService.sendBookingReschedule(updatedBooking, oldStartTime, rescheduledBy);
+    } catch (emailError) {
+      console.error('Failed to send reschedule notification emails:', emailError);
+      // Don't fail the reschedule if email fails
+    }
+
+    return updatedBooking;
   }
 
   async getUpcomingBookings(userId: string, limit: number = 10): Promise<any[]> {
@@ -470,28 +511,44 @@ export class BookingsService {
     endTime: Date,
     meetingType: any,
   ): Promise<void> {
-    // Check if the time slot falls within host's availability
-    const dayOfWeek = startTime.getDay();
+    // Get the host's timezone from the database
+    const host = await this.prisma.user.findUnique({
+      where: { id: hostId },
+      select: { timezone: true }
+    });
+
+    if (!host) {
+      throw new NotFoundException('Host not found');
+    }
+
+    const hostTimezone = host.timezone || 'UTC';
+
+    // Convert UTC times to host's timezone for availability checking
+    const startTimeInHostTz = utcToZonedTime(startTime, hostTimezone);
+    const endTimeInHostTz = utcToZonedTime(endTime, hostTimezone);
     
-    // Extract time from the original startTime and endTime to avoid timezone issues
-    // Create local time strings by manually parsing the Date components
-    const startHours = startTime.getHours().toString().padStart(2, '0');
-    const startMinutes = startTime.getMinutes().toString().padStart(2, '0');
-    const endHours = endTime.getHours().toString().padStart(2, '0');
-    const endMinutes = endTime.getMinutes().toString().padStart(2, '0');
+    // Get day of week in host's timezone
+    const dayOfWeek = startTimeInHostTz.getDay();
+    
+    // Extract time components in host's timezone
+    const startHours = startTimeInHostTz.getHours().toString().padStart(2, '0');
+    const startMinutes = startTimeInHostTz.getMinutes().toString().padStart(2, '0');
+    const endHours = endTimeInHostTz.getHours().toString().padStart(2, '0');
+    const endMinutes = endTimeInHostTz.getMinutes().toString().padStart(2, '0');
     
     const timeStart = `${startHours}:${startMinutes}`;
     const timeEnd = `${endHours}:${endMinutes}`;
 
-    console.log('DEBUG - validateTimeSlot called with:', {
+    console.log('DEBUG - validateTimeSlot called with timezone conversion:', {
       hostId,
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString(),
+      hostTimezone,
+      originalStartTime: startTime.toISOString(),
+      originalEndTime: endTime.toISOString(),
+      startTimeInHostTz: format(startTimeInHostTz, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone: hostTimezone }),
+      endTimeInHostTz: format(endTimeInHostTz, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone: hostTimezone }),
       dayOfWeek,
       timeStart,
       timeEnd,
-      originalTimeString: startTime.toTimeString(),
-      extractedHours: { startHours, startMinutes, endHours, endMinutes }
     });
 
     const availability = await this.prisma.availability.findFirst({
@@ -567,7 +624,11 @@ export class BookingsService {
       throw new BadRequestException(`Selected time slot is not available. No availability is configured for ${dayName} at ${timeStart}-${timeEnd}.`);
     }
 
-    // Check for blocked times
+    // Check for blocked times using host timezone
+    const startDateInHostTz = format(startTimeInHostTz, 'yyyy-MM-dd', { timeZone: hostTimezone });
+    const startOfDayInHostTz = zonedTimeToUtc(`${startDateInHostTz} 00:00:00`, hostTimezone);
+    const endOfDayInHostTz = zonedTimeToUtc(`${startDateInHostTz} 23:59:59`, hostTimezone);
+
     const blockedTime = await this.prisma.availability.findFirst({
       where: {
         userId: hostId,
@@ -576,8 +637,8 @@ export class BookingsService {
           {
             type: 'DATE_SPECIFIC',
             specificDate: {
-              gte: new Date(startTime.toDateString()),
-              lt: new Date(new Date(startTime.toDateString()).getTime() + 24 * 60 * 60 * 1000),
+              gte: startOfDayInHostTz,
+              lt: endOfDayInHostTz,
             },
           },
           {
@@ -696,7 +757,7 @@ export class BookingsService {
     await this.validateTimeSlot(hostId, startTime, finalEndTime, meetingType);
 
     try {
-      return await this.prisma.booking.create({
+      const booking = await this.prisma.booking.create({
         data: {
           ...bookingData,
           startTime: startTime,
@@ -725,6 +786,19 @@ export class BookingsService {
           },
         },
       });
+
+      // Send email notifications
+      try {
+        await Promise.all([
+          this.emailService.sendBookingConfirmation(booking),
+          this.emailService.sendBookingNotificationToHost(booking),
+        ]);
+      } catch (emailError) {
+        console.error('Failed to send booking notification emails:', emailError);
+        // Don't fail the booking creation if email fails
+      }
+
+      return booking;
     } catch (error) {
       if (error.code === 'P2002') {
         throw new ConflictException('Booking conflict detected');
@@ -733,15 +807,16 @@ export class BookingsService {
     }
   }
 
-  async getAvailableSlots(hostId: string, date: string, duration: number): Promise<any> {
-    // First validate that the host user is active
+  async getAvailableSlots(hostId: string, date: string, duration: number, timezone?: string): Promise<any> {
+    // First validate that the host user is active and get their timezone
     const hostUser = await this.prisma.user.findUnique({
       where: { id: hostId },
       select: { 
         id: true, 
         isActive: true, 
         firstName: true, 
-        lastName: true 
+        lastName: true,
+        timezone: true
       },
     });
 
@@ -761,13 +836,20 @@ export class BookingsService {
       };
     }
 
-    const selectedDate = new Date(date);
-    const dayOfWeek = selectedDate.getDay();
+    const hostTimezone = hostUser.timezone || 'UTC';
+    const requestTimezone = timezone || hostTimezone;
+
+    // Convert the requested date to the host's timezone for availability checking
+    const selectedDateInHostTz = zonedTimeToUtc(`${date} 00:00:00`, hostTimezone);
+    const dayOfWeek = utcToZonedTime(selectedDateInHostTz, hostTimezone).getDay();
     
-    console.log('DEBUG - Getting available slots for:', {
+    console.log('DEBUG - Getting available slots with timezone support:', {
       hostId,
       date,
       duration,
+      hostTimezone,
+      requestTimezone,
+      selectedDateInHostTz: selectedDateInHostTz.toISOString(),
       dayOfWeek,
     });
 
@@ -784,8 +866,8 @@ export class BookingsService {
           {
             type: 'DATE_SPECIFIC',
             specificDate: {
-              gte: new Date(selectedDate.toDateString()),
-              lt: new Date(new Date(selectedDate.toDateString()).getTime() + 24 * 60 * 60 * 1000),
+              gte: selectedDateInHostTz,
+              lt: new Date(selectedDateInHostTz.getTime() + 24 * 60 * 60 * 1000),
             },
             isBlocked: false,
           },
@@ -793,11 +875,15 @@ export class BookingsService {
       },
     });
 
+    console.log('DEBUG - Found availability records:', availability);
+
     if (!availability.length) {
       // Check if user has any availability configured at all
       const totalAvailability = await this.prisma.availability.count({
         where: { userId: hostId }
       });
+
+      console.log('DEBUG - Total availability count for user:', totalAvailability);
       
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       const dayName = dayNames[dayOfWeek];
@@ -822,8 +908,8 @@ export class BookingsService {
       where: {
         hostId,
         startTime: {
-          gte: new Date(selectedDate.toDateString()),
-          lt: new Date(new Date(selectedDate.toDateString()).getTime() + 24 * 60 * 60 * 1000),
+          gte: selectedDateInHostTz,
+          lt: new Date(selectedDateInHostTz.getTime() + 24 * 60 * 60 * 1000),
         },
         status: {
           in: ['CONFIRMED', 'PENDING'],
@@ -843,11 +929,37 @@ export class BookingsService {
       const [startHour, startMinute] = avail.startTime.split(':').map(Number);
       const [endHour, endMinute] = avail.endTime.split(':').map(Number);
       
-      const availStart = new Date(selectedDate);
-      availStart.setHours(startHour, startMinute, 0, 0);
+      // Create the availability times in Asia/Calcutta timezone (IST)
+      // The availability is configured for IST, so 9 AM means 9 AM IST
+      const dateStr = selectedDateInHostTz.toISOString().split('T')[0]; // Get YYYY-MM-DD
       
-      const availEnd = new Date(selectedDate);
-      availEnd.setHours(endHour, endMinute, 0, 0);
+      // If user is in a different timezone, we need to calculate what date in IST 
+      // corresponds to their selected date
+      let istDateStr = dateStr;
+      
+      if (timezone && timezone !== 'Asia/Calcutta' && timezone !== 'Asia/Kolkata') {
+        // Calculate what IST date would show the slots on the user's selected date
+        // For example: if user selects Sept 3 in PST, we want IST slots that appear on Sept 3 PST
+        const userSelectedDate = new Date(`${dateStr}T12:00:00`); // noon on selected date
+        
+        // Convert user's noon to IST to see what IST date we should use
+        const userNoonInIST = new Intl.DateTimeFormat('sv-SE', {
+          timeZone: 'Asia/Calcutta',
+          year: 'numeric',
+          month: '2-digit', 
+          day: '2-digit'
+        }).format(userSelectedDate);
+        
+        istDateStr = userNoonInIST;
+        console.log(`DEBUG - User selected ${dateStr} in ${timezone}, using IST date ${istDateStr} for availability lookup`);
+      }
+      
+      // Create time strings in IST using the calculated IST date
+      const istStartTime = `${istDateStr}T${startHour.toString().padStart(2, '0')}:${startMinute.toString().padStart(2, '0')}:00+05:30`;
+      const istEndTime = `${istDateStr}T${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00+05:30`;
+      
+      const availStart = new Date(istStartTime);
+      const availEnd = new Date(istEndTime);
       
       let currentSlot = new Date(availStart);
       
@@ -867,14 +979,57 @@ export class BookingsService {
         });
         
         if (!hasConflict) {
+          // The currentSlot is already in IST (9 AM IST for example)
+          // We need to convert this IST time to the requested timezone
+          let formattedLabel: string;
+          
+          if (timezone) {
+            // Use Intl.DateTimeFormat to convert from IST to the target timezone
+            const timeLabel = new Intl.DateTimeFormat('en-US', {
+              hour: 'numeric', 
+              minute: '2-digit',
+              hour12: true,
+              timeZone: timezone
+            }).format(currentSlot);
+            
+            // Check if the converted time is on a different date
+            const istDate = new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'Asia/Calcutta'
+            }).format(currentSlot); // YYYY-MM-DD format
+            
+            const convertedDate = new Intl.DateTimeFormat('en-CA', {
+              timeZone: timezone
+            }).format(currentSlot); // YYYY-MM-DD format
+            
+            if (istDate !== convertedDate) {
+              // Different dates - show both date and time
+              const dateLabel = new Intl.DateTimeFormat('en-US', {
+                month: 'short',
+                day: 'numeric',
+                timeZone: timezone
+              }).format(currentSlot);
+              formattedLabel = `${timeLabel} (${dateLabel})`;
+            } else {
+              // Same date - just show time
+              formattedLabel = timeLabel;
+            }
+            
+            console.log(`DEBUG - Converting IST time ${currentSlot.toISOString()} to ${timezone}: ${formattedLabel}`);
+          } else {
+            // No timezone specified, show as IST
+            formattedLabel = new Intl.DateTimeFormat('en-US', {
+              hour: 'numeric', 
+              minute: '2-digit',
+              hour12: true,
+              timeZone: 'Asia/Calcutta'
+            }).format(currentSlot);
+            console.log('DEBUG - No timezone: showing as IST:', formattedLabel);
+          }
+          
           slots.push({
             startTime: currentSlot.toISOString(),
             endTime: slotEnd.toISOString(),
-            label: currentSlot.toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              minute: '2-digit',
-              hour12: true 
-            }),
+            label: formattedLabel,
           });
         }
         
@@ -886,10 +1041,11 @@ export class BookingsService {
     return { availableSlots: slots };
   }
 
-  async getAvailableSlotsForMeetingType(meetingTypeId: string, date: string): Promise<any> {
+  async getAvailableSlotsForMeetingType(meetingTypeId: string, date: string, timezone?: string): Promise<any> {
     console.log('DEBUG - Getting available slots for meeting type:', {
       meetingTypeId,
       date,
+      timezone,
     });
 
     // First, get the meeting type to get host and duration info
@@ -912,7 +1068,7 @@ export class BookingsService {
     }
 
     // Use the existing getAvailableSlots method with the host ID and duration
-    return this.getAvailableSlots(meetingType.hostId, date, meetingType.duration);
+    return this.getAvailableSlots(meetingType.hostId, date, meetingType.duration, timezone);
   }
 
   async getMeetingProvidersForMeetingType(meetingTypeId: string) {
@@ -944,5 +1100,162 @@ export class BookingsService {
       availableProviders: meetingType.organization.supportedMeetingProviders,
       defaultProvider: meetingType.organization.defaultMeetingProvider,
     };
+  }
+
+  // Public booking action methods (with token verification)
+  private generateBookingToken(bookingId: string): string {
+    // In production, this should be a secure JWT token with expiration
+    return Buffer.from(`${bookingId}:${Date.now()}`).toString('base64');
+  }
+
+  private verifyBookingToken(bookingId: string, token: string): boolean {
+    try {
+      const decoded = Buffer.from(token, 'base64').toString('utf-8');
+      const [id, timestamp] = decoded.split(':');
+      
+      // Verify booking ID matches
+      if (id !== bookingId) {
+        return false;
+      }
+      
+      // Token expires after 24 hours
+      const tokenAge = Date.now() - parseInt(timestamp);
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+      
+      return tokenAge < maxAge;
+    } catch {
+      return false;
+    }
+  }
+
+  async getBookingForPublicAction(bookingId: string, token: string): Promise<any> {
+    if (!this.verifyBookingToken(bookingId, token)) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    return booking;
+  }
+
+  async rescheduleBookingPublic(
+    bookingId: string,
+    token: string,
+    newStartTime: string,
+    newEndTime: string,
+  ): Promise<any> {
+    if (!this.verifyBookingToken(bookingId, token)) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    const booking = await this.getBookingForPublicAction(bookingId, token);
+
+    // Check if booking can be rescheduled
+    if ([BookingStatus.CANCELLED, BookingStatus.COMPLETED].includes(booking.status as BookingStatus)) {
+      throw new BadRequestException('Cannot reschedule cancelled or completed booking');
+    }
+
+    const oldStartTime = new Date(booking.startTime);
+    const newStart = new Date(newStartTime);
+    const newEnd = new Date(newEndTime);
+
+    // Check for time conflicts (excluding current booking)
+    await this.checkTimeConflicts(booking.hostId, newStart, newEnd, bookingId);
+
+    const updatedBooking = await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        startTime: newStart,
+        endTime: newEnd,
+        status: BookingStatus.RESCHEDULED,
+      },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Send reschedule email notifications
+    try {
+      await this.emailService.sendBookingReschedule(updatedBooking, oldStartTime, 'attendee');
+    } catch (emailError) {
+      console.error('Failed to send reschedule notification emails:', emailError);
+      // Don't fail the reschedule if email fails
+    }
+
+    return updatedBooking;
+  }
+
+  async cancelBookingPublic(bookingId: string, token: string, reason?: string): Promise<any> {
+    if (!this.verifyBookingToken(bookingId, token)) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    const booking = await this.getBookingForPublicAction(bookingId, token);
+
+    // Check if booking can be cancelled
+    if (booking.status === BookingStatus.CANCELLED) {
+      throw new BadRequestException('Booking is already cancelled');
+    }
+
+    if (booking.status === BookingStatus.COMPLETED) {
+      throw new BadRequestException('Cannot cancel a completed booking');
+    }
+
+    const updatedBooking = await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: BookingStatus.CANCELLED,
+        notes: reason ? `${booking.notes || ''}\nCancellation reason: ${reason}` : booking.notes,
+      },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Send cancellation email notifications
+    try {
+      await this.emailService.sendBookingCancellation(updatedBooking, 'attendee', reason);
+    } catch (emailError) {
+      console.error('Failed to send cancellation notification emails:', emailError);
+      // Don't fail the cancellation if email fails
+    }
+
+    return updatedBooking;
   }
 }

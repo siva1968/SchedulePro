@@ -98,7 +98,7 @@ export class CalendarController {
     @Param('bookingId') bookingId: string,
     @Param('integrationId') integrationId: string,
   ) {
-    return this.calendarService.removeBookingFromCalendar(bookingId, integrationId);
+    return this.calendarService.removeBookingFromCalendar(bookingId);
   }
 
   @Get('conflicts')

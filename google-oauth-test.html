@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Calendar OAuth Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #4285f4;
+        }
+        .error {
+            border-left-color: #ea4335;
+            background-color: #fef7f7;
+        }
+        .success {
+            border-left-color: #34a853;
+            background-color: #f0f8f0;
+        }
+        .token-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Google Calendar OAuth Test</h1>
+        <p>This page helps you test the Google Calendar OAuth integration for SchedulePro.</p>
+        
+        <h3>Step 1: Enter your access token</h3>
+        <input type="text" id="accessToken" class="token-input" placeholder="Paste your access token here..." 
+               value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlM2UyZGU4NC1iNDRhLTRhOGUtOTQ2OC05ODczYWQyN2FmODciLCJlbWFpbCI6InByYXNhZC5tQGxzbnNvZnQuY29tIiwib3JnYW5pemF0aW9uSWRzIjpbIjUzY2Y5MGM2LTRhMmItNDU5Ny04MmRmLTY3N2JlMGFjMGM5OSJdLCJpYXQiOjE3NTY0MTAzNzQsImV4cCI6MTc1NzAxNTE3NH0.Wasv1krCUv314rI3l_EE-YmspVkgaflEwcCJQx6OVwY">
+        
+        <h3>Step 2: Start Google OAuth Flow</h3>
+        <button onclick="startGoogleOAuth()">🚀 Connect Google Calendar</button>
+        
+        <div id="result" class="result" style="display: none;"></div>
+        
+        <h3>Alternative: Direct OAuth URL</h3>
+        <p>If the above doesn't work, use this curl command in your terminal:</p>
+        <div class="result">
+            <pre id="curlCommand">curl -H "Authorization: Bearer YOUR_TOKEN" -v "http://localhost:3001/api/v1/calendar/oauth/google?integrationName=Google%20Calendar"</pre>
+        </div>
+    </div>
+
+    <script>
+        function updateCurlCommand() {
+            const token = document.getElementById('accessToken').value;
+            const curlCommand = `curl -H "Authorization: Bearer ${token}" -v "http://localhost:3001/api/v1/calendar/oauth/google?integrationName=Google%20Calendar"`;
+            document.getElementById('curlCommand').textContent = curlCommand;
+        }
+
+        async function startGoogleOAuth() {
+            const token = document.getElementById('accessToken').value.trim();
+            const resultDiv = document.getElementById('result');
+            
+            if (!token) {
+                showResult('Please enter your access token first!', 'error');
+                return;
+            }
+
+            showResult('Starting Google OAuth flow...', '');
+            
+            try {
+                const response = await fetch('http://localhost:3001/api/v1/calendar/oauth/google?integrationName=Google%20Calendar', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    redirect: 'manual' // Don't follow redirects automatically
+                });
+
+                if (response.status === 302) {
+                    // Get the redirect URL from the Location header
+                    const redirectUrl = response.headers.get('Location');
+                    if (redirectUrl) {
+                        showResult(`✅ OAuth URL generated successfully! Redirecting to Google...`, 'success');
+                        // Redirect to Google OAuth
+                        window.location.href = redirectUrl;
+                    } else {
+                        showResult(`⚠️ Got redirect response but no Location header found.`, 'error');
+                    }
+                } else if (response.status === 401) {
+                    showResult(`❌ Unauthorized: Please check your access token.`, 'error');
+                } else {
+                    const text = await response.text();
+                    if (text.includes('accounts.google.com')) {
+                        showResult(`✅ Got Google OAuth page! OAuth is working. The response contains Google's authorization page.`, 'success');
+                    } else {
+                        showResult(`❌ Unexpected response (${response.status}): ${text.substring(0, 200)}...`, 'error');
+                    }
+                }
+            } catch (error) {
+                showResult(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+        }
+
+        // Update curl command when token changes
+        document.getElementById('accessToken').addEventListener('input', updateCurlCommand);
+        updateCurlCommand(); // Initialize
+    </script>
+</body>
+</html>
