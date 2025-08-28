@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useBookingStore } from '@/stores/booking-store';
 import { apiClient } from '@/lib/api-client';
+import TimezoneSelect from './TimezoneSelect';
+import { getSystemTimezone, convertToTimezone } from '@/lib/timezone';
+import { Globe } from 'lucide-react';
 
 interface CreateBookingModalProps {
   isOpen: boolean;
@@ -26,6 +29,7 @@ interface CreateBookingData {
   attendeeName: string;
   attendeeEmail: string;
   attendeePhone: string;
+  timezone: string;
 }
 
 export default function CreateBookingModal({ isOpen, onClose, onSuccess }: CreateBookingModalProps) {
@@ -39,6 +43,7 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
     attendeeName: '',
     attendeeEmail: '',
     attendeePhone: '',
+    timezone: getSystemTimezone(),
   });
   const [meetingTypes, setMeetingTypes] = useState<MeetingType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -119,25 +124,6 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
         console.log('DEBUG v2 - Found meeting type:', meetingType);
         
         if (meetingType && startTime) {
-          // Test with a known example first
-          console.log('DEBUG v2 - Testing with known time: 2024-08-30T09:30');
-          const testTime = '2024-08-30T09:30';
-          const [testDatePart, testTimePart] = testTime.split('T');
-          const [testYear, testMonth, testDay] = testDatePart.split('-').map(Number);
-          const [testHours, testMinutes] = testTimePart.split(':').map(Number);
-          const testStart = new Date(testYear, testMonth - 1, testDay, testHours, testMinutes);
-          const testEnd = new Date(testStart.getTime() + 30 * 60000); // 30 minute meeting
-          console.log('DEBUG v2 - Test calculation:', {
-            testInput: testTime,
-            testStartDate: testStart.toString(),
-            testEndDate: testEnd.toString(),
-            testStartHours: testStart.getHours(),
-            testStartMinutes: testStart.getMinutes(),
-            testEndHours: testEnd.getHours(),
-            testEndMinutes: testEnd.getMinutes()
-          });
-          
-          // Now do the actual calculation
           const [datePart, timePart] = startTime.split('T');
           if (datePart && timePart) {
             const [year, month, day] = datePart.split('-').map(Number);
@@ -148,25 +134,9 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
             // Create date in local timezone
             const startDate = new Date(year, month - 1, day, hours, minutes);
             console.log('DEBUG v2 - Created startDate:', startDate.toString());
-            console.log('DEBUG v2 - startDate details:', {
-              getTime: startDate.getTime(),
-              getFullYear: startDate.getFullYear(),
-              getMonth: startDate.getMonth(),
-              getDate: startDate.getDate(),
-              getHours: startDate.getHours(),
-              getMinutes: startDate.getMinutes()
-            });
             
             const endDate = new Date(startDate.getTime() + meetingType.duration * 60000);
             console.log('DEBUG v2 - Created endDate:', endDate.toString());
-            console.log('DEBUG v2 - endDate details:', {
-              getTime: endDate.getTime(),
-              getFullYear: endDate.getFullYear(),
-              getMonth: endDate.getMonth(),
-              getDate: endDate.getDate(),
-              getHours: endDate.getHours(),
-              getMinutes: endDate.getMinutes()
-            });
             
             // Format back to datetime-local format
             const formatLocalDateTime = (date: Date) => {
@@ -190,11 +160,13 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
               startMinutes: minutes,
               endHours: endDate.getHours(),
               endMinutes: endDate.getMinutes()
-            });        setFormData(prev => ({
-          ...prev,
-          startTime,
-          endTime: formattedEndTime,
-        }));
+            });        
+            
+            setFormData(prev => ({
+              ...prev,
+              startTime,
+              endTime: formattedEndTime,
+            }));
       } else {
         console.log('DEBUG - Invalid startTime format:', startTime);
         setFormData(prev => ({ ...prev, startTime }));
@@ -202,6 +174,30 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
     } else {
       console.log('DEBUG - Missing meeting type or startTime');
       setFormData(prev => ({ ...prev, startTime }));
+    }
+  };
+
+  const handleTimezoneChange = (timezone: string) => {
+    // When timezone changes, convert existing times to the new timezone
+    if (formData.startTime && formData.endTime) {
+      const startTime = new Date(formData.startTime);
+      const endTime = new Date(formData.endTime);
+      
+      if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+        const newStartTime = convertToTimezone(startTime, timezone);
+        const newEndTime = convertToTimezone(endTime, timezone);
+        
+        setFormData(prev => ({
+          ...prev,
+          timezone,
+          startTime: newStartTime.toISOString().slice(0, 16),
+          endTime: newEndTime.toISOString().slice(0, 16)
+        }));
+      } else {
+        setFormData(prev => ({ ...prev, timezone }));
+      }
+    } else {
+      setFormData(prev => ({ ...prev, timezone }));
     }
   };
 
@@ -238,10 +234,17 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
       }
 
       // Create booking
+      const startTime = new Date(formData.startTime);
+      const endTime = new Date(formData.endTime);
+      
+      // Convert times to the selected timezone for API submission
+      const startTimeInSelectedTZ = convertToTimezone(startTime, formData.timezone);
+      const endTimeInSelectedTZ = convertToTimezone(endTime, formData.timezone);
+      
       await createBooking({
         meetingTypeId: formData.meetingTypeId,
-        startTime: formData.startTime,
-        endTime: formData.endTime,
+        startTime: startTimeInSelectedTZ.toISOString(),
+        endTime: endTimeInSelectedTZ.toISOString(),
         title: formData.title || `Meeting with ${formData.attendeeName}`,
         description: formData.description,
         locationType: 'ONLINE',
@@ -262,6 +265,7 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
         attendeeName: '',
         attendeeEmail: '',
         attendeePhone: '',
+        timezone: getSystemTimezone(),
       });
       onSuccess();
       onClose();
@@ -284,6 +288,7 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
         attendeeName: '',
         attendeeEmail: '',
         attendeePhone: '',
+        timezone: getSystemTimezone(),
       });
       setErrors({});
       onClose();
@@ -373,6 +378,16 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               disabled={isLoading}
               readOnly
+            />
+          </div>
+
+          {/* Timezone */}
+          <div>
+            <TimezoneSelect
+              value={formData.timezone}
+              onChange={handleTimezoneChange}
+              label="Timezone"
+              showCurrentTime={true}
             />
           </div>
 

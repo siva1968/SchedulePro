@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Calendar, Clock, Users, MapPin } from 'lucide-react';
+import { X, Calendar, Clock, Users, MapPin, Globe } from 'lucide-react';
 import { useBookingStore } from '@/stores/booking-store';
+import TimezoneSelect from './TimezoneSelect';
+import { getSystemTimezone, convertToTimezone, formatTimeInTimezone } from '@/lib/timezone';
 
 interface Booking {
   id: string;
@@ -56,6 +58,7 @@ export default function EditBookingModal({ isOpen, onClose, booking, onSuccess }
     endTime: '',
     locationType: 'ONLINE',
     meetingUrl: '',
+    timezone: getSystemTimezone(),
   });
 
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +76,7 @@ export default function EditBookingModal({ isOpen, onClose, booking, onSuccess }
         endTime: endTime.toISOString().slice(0, 16),
         locationType: booking.locationType || 'ONLINE',
         meetingUrl: booking.meetingUrl || '',
+        timezone: getSystemTimezone(),
       });
     }
   }, [booking]);
@@ -96,16 +100,33 @@ export default function EditBookingModal({ isOpen, onClose, booking, onSuccess }
     setError(null);
 
     try {
+      // Create Date objects from the datetime-local inputs (assumes local time)
       const startTime = new Date(formData.startTime);
       const endTime = new Date(formData.endTime);
 
       // Validate times
+      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+        setError('Please enter valid start and end times');
+        return;
+      }
+
       if (startTime >= endTime) {
         setError('End time must be after start time');
         return;
       }
 
-      if (startTime < new Date()) {
+      // Check if the duration is reasonable (at least 5 minutes)
+      const durationMinutes = (endTime.getTime() - startTime.getTime()) / (1000 * 60);
+      if (durationMinutes < 5) {
+        setError('Meeting duration must be at least 5 minutes');
+        return;
+      }
+
+      // Convert times to the selected timezone for API submission
+      const startTimeInSelectedTZ = convertToTimezone(startTime, formData.timezone);
+      const endTimeInSelectedTZ = convertToTimezone(endTime, formData.timezone);
+
+      if (startTimeInSelectedTZ < new Date()) {
         setError('Start time cannot be in the past');
         return;
       }
@@ -114,8 +135,8 @@ export default function EditBookingModal({ isOpen, onClose, booking, onSuccess }
         title: formData.title || undefined,
         description: formData.description || undefined,
         notes: formData.notes || undefined,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
+        startTime: startTimeInSelectedTZ.toISOString(),
+        endTime: endTimeInSelectedTZ.toISOString(),
         locationType: formData.locationType,
         meetingUrl: formData.locationType === 'ONLINE' ? formData.meetingUrl : undefined,
       });
@@ -129,7 +150,39 @@ export default function EditBookingModal({ isOpen, onClose, booking, onSuccess }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    if (name === 'startTime' && booking) {
+      // Auto-adjust end time when start time changes to maintain duration
+      const newStartTime = new Date(value);
+      const originalDuration = booking.meetingType.duration; // Duration in minutes
+      const newEndTime = new Date(newStartTime.getTime() + originalDuration * 60000);
+      
+      setFormData(prev => ({ 
+        ...prev, 
+        [name]: value,
+        endTime: newEndTime.toISOString().slice(0, 16)
+      }));
+    } else if (name === 'timezone') {
+      // When timezone changes, convert existing times to the new timezone
+      const startTime = new Date(formData.startTime);
+      const endTime = new Date(formData.endTime);
+      
+      if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+        const newStartTime = convertToTimezone(startTime, value);
+        const newEndTime = convertToTimezone(endTime, value);
+        
+        setFormData(prev => ({
+          ...prev,
+          [name]: value,
+          startTime: newStartTime.toISOString().slice(0, 16),
+          endTime: newEndTime.toISOString().slice(0, 16)
+        }));
+      } else {
+        setFormData(prev => ({ ...prev, [name]: value }));
+      }
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -215,6 +268,24 @@ export default function EditBookingModal({ isOpen, onClose, booking, onSuccess }
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
+            </div>
+            
+            {/* Timezone */}
+            <div>
+              <TimezoneSelect
+                value={formData.timezone}
+                onChange={(timezone) => handleChange({ target: { name: 'timezone', value: timezone } } as any)}
+                label="Timezone"
+                showCurrentTime={true}
+              />
+            </div>
+            
+            {/* Time adjustment note */}
+            <div className="text-sm text-gray-600 -mt-2">
+              <span className="flex items-center">
+                <Clock className="inline h-3 w-3 mr-1" />
+                Note: End time will automatically adjust when you change the start time to maintain the original meeting duration ({booking.meetingType.duration} minutes).
+              </span>
             </div>
 
             {/* Location Type */}

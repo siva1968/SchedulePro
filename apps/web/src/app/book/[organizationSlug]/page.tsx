@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { CalendarIcon, ClockIcon, UserIcon, MapPinIcon, ArrowLeft } from 'lucide-react';
+import { CalendarIcon, ClockIcon, UserIcon, MapPinIcon, ArrowLeft, Globe } from 'lucide-react';
 import { toast } from 'sonner';
+import TimezoneSelect from '@/components/TimezoneSelect';
+import { getSystemTimezone, convertToTimezone } from '@/lib/timezone';
 
 interface MeetingType {
   id: string;
@@ -45,6 +47,7 @@ interface BookingFormData {
   selectedDate: string;
   selectedSlot: TimeSlot | null;
   meetingProvider?: string;
+  timezone: string;
 }
 
 interface Organization {
@@ -74,6 +77,7 @@ export default function UnifiedBookingPage() {
     description: '',
     selectedDate: '',
     selectedSlot: null,
+    timezone: getSystemTimezone(),
   });
 
   useEffect(() => {
@@ -144,6 +148,14 @@ export default function UnifiedBookingPage() {
     setFormData(prev => ({ ...prev, selectedSlot: slot }));
   };
 
+  const handleTimezoneChange = (timezone: string) => {
+    setFormData(prev => ({ ...prev, timezone }));
+    // Re-fetch available slots if a date is selected to show times in the new timezone
+    if (selectedMeetingType && formData.selectedDate) {
+      fetchAvailableSlots(selectedMeetingType.id, formData.selectedDate);
+    }
+  };
+
   const handleBooking = async () => {
     if (!selectedMeetingType || !formData.selectedSlot || !formData.attendeeName || !formData.attendeeEmail) {
       toast.error('Please fill in all required fields');
@@ -152,6 +164,12 @@ export default function UnifiedBookingPage() {
 
     setBookingLoading(true);
     try {
+      // Convert slot times to the selected timezone for API submission
+      const startTime = new Date(formData.selectedSlot.startTime);
+      const endTime = new Date(formData.selectedSlot.endTime);
+      const startTimeInSelectedTZ = convertToTimezone(startTime, formData.timezone);
+      const endTimeInSelectedTZ = convertToTimezone(endTime, formData.timezone);
+
       const response = await fetch('http://localhost:3001/api/v1/public/bookings', {
         method: 'POST',
         headers: {
@@ -159,8 +177,8 @@ export default function UnifiedBookingPage() {
         },
         body: JSON.stringify({
           meetingTypeId: selectedMeetingType.id,
-          startTime: formData.selectedSlot.startTime,
-          endTime: formData.selectedSlot.endTime,
+          startTime: startTimeInSelectedTZ.toISOString(),
+          endTime: endTimeInSelectedTZ.toISOString(),
           title: formData.title,
           description: formData.description,
           attendees: [
@@ -188,6 +206,7 @@ export default function UnifiedBookingPage() {
         description: '',
         selectedDate: '',
         selectedSlot: null,
+        timezone: getSystemTimezone(),
       });
       setStep('select-meeting-type');
       setSelectedMeetingType(null);
@@ -373,6 +392,19 @@ export default function UnifiedBookingPage() {
                         onChange={(e) => handleDateChange(e.target.value)}
                         min={new Date().toISOString().split('T')[0]}
                       />
+                    </div>
+
+                    <div>
+                      <Label>
+                        <Globe className="inline w-4 h-4 mr-1" />
+                        Timezone *
+                      </Label>
+                      <div className="mt-1">
+                        <TimezoneSelect
+                          value={formData.timezone}
+                          onChange={handleTimezoneChange}
+                        />
+                      </div>
                     </div>
 
                     {formData.selectedDate && (

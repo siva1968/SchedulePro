@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { CalendarIcon, ClockIcon, UserIcon, MapPinIcon } from 'lucide-react';
+import { CalendarIcon, ClockIcon, UserIcon, MapPinIcon, Globe } from 'lucide-react';
 import { toast } from 'sonner';
+import TimezoneSelect from '@/components/TimezoneSelect';
+import { getSystemTimezone, convertToTimezone } from '@/lib/timezone';
 
 interface MeetingType {
   id: string;
@@ -44,6 +46,7 @@ interface BookingFormData {
   selectedDate: string;
   selectedSlot: TimeSlot | null;
   meetingProvider?: string;
+  timezone: string;
 }
 
 interface MeetingProvider {
@@ -89,6 +92,7 @@ export default function PublicBookingPage() {
     selectedDate: '',
     selectedSlot: null,
     meetingProvider: '',
+    timezone: getSystemTimezone(),
   });
 
   // Load meeting type details
@@ -176,16 +180,31 @@ export default function PublicBookingPage() {
     setStep('form');
   };
 
+  const handleTimezoneChange = (timezone: string) => {
+    setFormData(prev => ({ ...prev, timezone }));
+    // Re-fetch available slots if a date is selected to show times in the new timezone
+    if (formData.selectedDate && meetingType) {
+      // Re-trigger the useEffect that fetches slots
+      setFormData(prev => ({ ...prev, timezone, selectedSlot: null }));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.selectedSlot || !meetingType) return;
 
     setSubmitting(true);
     try {
+      // Convert slot times to the selected timezone for API submission
+      const startTime = new Date(formData.selectedSlot.startTime);
+      const endTime = new Date(formData.selectedSlot.endTime);
+      const startTimeInSelectedTZ = convertToTimezone(startTime, formData.timezone);
+      const endTimeInSelectedTZ = convertToTimezone(endTime, formData.timezone);
+
       const bookingData = {
         meetingTypeId: meetingType.id,
-        startTime: formData.selectedSlot.startTime,
-        endTime: formData.selectedSlot.endTime,
+        startTime: startTimeInSelectedTZ.toISOString(),
+        endTime: endTimeInSelectedTZ.toISOString(),
         title: formData.title,
         description: formData.description,
         locationType: meetingType.locationType,
@@ -309,6 +328,20 @@ export default function PublicBookingPage() {
                   min={new Date().toISOString().split('T')[0]}
                   className="mt-2"
                 />
+              </div>
+
+              {/* Timezone Selection */}
+              <div>
+                <Label className="text-base font-medium">
+                  <Globe className="inline w-4 h-4 mr-1" />
+                  Timezone
+                </Label>
+                <div className="mt-2">
+                  <TimezoneSelect
+                    value={formData.timezone}
+                    onChange={handleTimezoneChange}
+                  />
+                </div>
               </div>
 
               {/* Time Slots */}
