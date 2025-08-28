@@ -120,6 +120,13 @@ export class PublicController {
           organizationId: organization.id,
           isActive: true,
         },
+        include: {
+          host: {
+            select: {
+              id: true,
+            },
+          },
+        },
       });
 
       if (!meetingType) {
@@ -134,9 +141,12 @@ export class PublicController {
       const endOfDay = new Date(selectedDate);
       endOfDay.setHours(23, 59, 59, 999);
 
+      // Check for conflicts with ALL bookings for the same host, not just same meeting type
       const existingBookings = await this.prisma.booking.findMany({
         where: {
-          meetingTypeId: meetingTypeId,
+          meetingType: {
+            hostId: meetingType.host.id, // Check by host, not meeting type
+          },
           startTime: {
             gte: startOfDay,
             lte: endOfDay,

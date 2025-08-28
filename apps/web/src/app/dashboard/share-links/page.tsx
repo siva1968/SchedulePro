@@ -9,6 +9,7 @@ import { Copy, ExternalLink, Share, CalendarDays } from 'lucide-react';
 import { toast } from 'sonner';
 import DashboardPageHeader from '@/components/DashboardPageHeader';
 import DashboardPageContainer from '@/components/DashboardPageContainer';
+import { useAuthStore } from '@/stores/auth-store';
 
 interface MeetingType {
   id: string;
@@ -28,36 +29,29 @@ interface Organization {
 
 export default function ShareLinksPage() {
   const [meetingTypes, setMeetingTypes] = useState<MeetingType[]>([]);
-  const [organization, setOrganization] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
+  const { user, token } = useAuthStore();
+  
+  // Get organization from user data in auth store
+  const organization = user?.organizations?.[0] ? {
+    id: user.organizations[0].id,
+    name: user.organizations[0].name,
+    slug: user.organizations[0].slug,
+  } : null;
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         // Fetch meeting types
-        const meetingTypesResponse = await fetch('/api/meeting-types', {
+        const meetingTypesResponse = await fetch('http://localhost:3001/api/v1/meeting-types', {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${token || localStorage.getItem('access_token')}`,
           },
         });
 
         if (meetingTypesResponse.ok) {
           const meetingTypesData = await meetingTypesResponse.json();
           setMeetingTypes(Array.isArray(meetingTypesData) ? meetingTypesData : meetingTypesData.meetingTypes || []);
-        }
-
-        // Fetch organization data
-        const profileResponse = await fetch('/api/auth/profile', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-          },
-        });
-
-        if (profileResponse.ok) {
-          const profileData = await profileResponse.json();
-          if (profileData.organizations && profileData.organizations.length > 0) {
-            setOrganization(profileData.organizations[0]);
-          }
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -68,7 +62,7 @@ export default function ShareLinksPage() {
     };
 
     fetchData();
-  }, []);
+  }, [token]);
 
   const generateUnifiedBookingLink = () => {
     if (!organization) return '';

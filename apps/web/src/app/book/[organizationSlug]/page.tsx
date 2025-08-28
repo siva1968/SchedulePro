@@ -86,7 +86,7 @@ export default function UnifiedBookingPage() {
       setError(null);
 
       // Fetch organization and meeting types
-      const response = await fetch(`/api/v1/public/organizations/${organizationSlug}/meeting-types`);
+      const response = await fetch(`http://localhost:3001/api/v1/public/organizations/${organizationSlug}/meeting-types`);
       
       if (!response.ok) {
         throw new Error('Organization not found');
@@ -105,7 +105,7 @@ export default function UnifiedBookingPage() {
 
   const fetchAvailableSlots = async (meetingTypeId: string, date: string) => {
     try {
-      const response = await fetch(`/api/v1/public/organizations/${organizationSlug}/meeting-types/${meetingTypeId}/availability?date=${date}`);
+      const response = await fetch(`http://localhost:3001/api/v1/public/organizations/${organizationSlug}/meeting-types/${meetingTypeId}/availability?date=${date}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch availability');
@@ -152,7 +152,7 @@ export default function UnifiedBookingPage() {
 
     setBookingLoading(true);
     try {
-      const response = await fetch('/api/v1/public/bookings', {
+      const response = await fetch('http://localhost:3001/api/v1/public/bookings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

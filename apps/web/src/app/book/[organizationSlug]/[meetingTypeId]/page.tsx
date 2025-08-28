@@ -95,7 +95,7 @@ export default function PublicBookingPage() {
   useEffect(() => {
     const fetchMeetingType = async () => {
       try {
-        const response = await fetch(`/api/public/meeting-types/${organizationSlug}/${meetingTypeId}`);
+        const response = await fetch(`http://localhost:3001/api/v1/public/meeting-types/${organizationSlug}/${meetingTypeId}`);
         if (!response.ok) {
           throw new Error('Meeting type not found');
         }
@@ -108,7 +108,7 @@ export default function PublicBookingPage() {
 
         // Fetch meeting provider config
         try {
-          const providerResponse = await fetch(`/api/public/bookings/meeting-type/${meetingTypeId}/providers`);
+          const providerResponse = await fetch(`http://localhost:3001/api/v1/public/bookings/meeting-type/${meetingTypeId}/providers`);
           if (providerResponse.ok) {
             const providerData = await providerResponse.json();
             setMeetingProviderConfig(providerData);
@@ -139,7 +139,7 @@ export default function PublicBookingPage() {
 
       try {
         const response = await fetch(
-          `/api/public/bookings/available-slots?meetingTypeId=${meetingType.id}&date=${formData.selectedDate}`
+          `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${meetingType.id}&date=${formData.selectedDate}`
         );
         if (!response.ok) {
           throw new Error('Failed to fetch available slots');
@@ -198,7 +198,7 @@ export default function PublicBookingPage() {
         ],
       };
 
-      const response = await fetch('/api/public/bookings', {
+      const response = await fetch('http://localhost:3001/api/v1/public/bookings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
