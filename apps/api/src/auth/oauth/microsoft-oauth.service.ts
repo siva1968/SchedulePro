@@ -64,8 +64,12 @@ export class MicrosoftOAuthService {
    */
   async handleCallback(code: string, state: string) {
     try {
+      console.log('Microsoft OAuth callback - Code:', code ? 'Present' : 'Missing');
+      console.log('Microsoft OAuth callback - State:', state ? 'Present' : 'Missing');
+      
       // Decode state parameter to get userId and integrationName
       const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      console.log('Decoded state:', decodedState);
       const { userId, integrationName } = decodedState;
 
       // Exchange code for tokens
@@ -121,13 +125,27 @@ export class MicrosoftOAuthService {
       grant_type: 'authorization_code',
     });
 
-    const response = await axios.post(tokenEndpoint, params, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    });
+    try {
+      const response = await axios.post(tokenEndpoint, params, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
 
-    return response.data;
+      return response.data;
+    } catch (error) {
+      console.error('Microsoft token exchange error:', error.response?.data || error.message);
+      
+      if (error.response?.data) {
+        // Microsoft returned an error response
+        const errorData = error.response.data;
+        if (errorData.error) {
+          throw new Error(`Microsoft OAuth error: ${errorData.error} - ${errorData.error_description || 'Unknown error'}`);
+        }
+      }
+      
+      throw new Error(`Failed to exchange code for tokens: ${error.message}`);
+    }
   }
 
   /**
