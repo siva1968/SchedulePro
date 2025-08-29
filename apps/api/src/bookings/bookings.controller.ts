@@ -45,8 +45,23 @@ export class BookingsController {
   @Get('upcoming')
   @ApiOperation({ summary: 'Get upcoming bookings for the authenticated user' })
   @ApiResponse({ status: 200, description: 'Upcoming bookings retrieved successfully' })
-  getUpcoming(@Query('limit') limit: string = '10', @Req() req: any) {
-    return this.bookingsService.getUpcomingBookings(req.user.id, parseInt(limit));
+  getUpcoming(
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10', 
+    @Req() req: any
+  ) {
+    return this.bookingsService.getUpcomingBookings(req.user.id, parseInt(page), parseInt(limit));
+  }
+
+  @Get('pending')
+  @ApiOperation({ summary: 'Get pending bookings for the authenticated user' })
+  @ApiResponse({ status: 200, description: 'Pending bookings retrieved successfully' })
+  async getPendingBookings(
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '20',
+    @Req() req: any
+  ) {
+    return this.bookingsService.getPendingBookings(req.user.id, parseInt(page), parseInt(limit));
   }
 
   @Get(':id')
@@ -93,6 +108,30 @@ export class BookingsController {
     @Req() req: any,
   ) {
     return this.bookingsService.reschedule(id, startTime, endTime, req.user.id);
+  }
+
+  @Post(':id/approve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Approve a pending booking' })
+  @ApiResponse({ status: 200, description: 'Booking approved successfully' })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only host can approve' })
+  async approveBooking(@Param('id') id: string, @Req() req: any) {
+    return this.bookingsService.approveBooking(id, req.user.id);
+  }
+
+  @Post(':id/decline')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Decline a pending booking' })
+  @ApiResponse({ status: 200, description: 'Booking declined successfully' })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only host can decline' })
+  async declineBooking(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Req() req: any,
+  ) {
+    return this.bookingsService.declineBooking(id, req.user.id, reason);
   }
 }
 
@@ -201,4 +240,5 @@ export class PublicBookingsController {
   ) {
     return this.bookingsService.cancelBookingPublic(bookingId, body.token, body.reason);
   }
+
 }

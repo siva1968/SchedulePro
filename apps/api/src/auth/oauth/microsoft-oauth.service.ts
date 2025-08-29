@@ -34,7 +34,15 @@ export class MicrosoftOAuthService {
     this.clientId = this.configService.get('MICROSOFT_CLIENT_ID');
     this.clientSecret = this.configService.get('MICROSOFT_CLIENT_SECRET');
     this.tenant = this.configService.get('MICROSOFT_TENANT_ID') || 'common';
-    this.redirectUri = `${this.configService.get('API_URL')}/api/v1/calendar/oauth/outlook/callback`;
+    
+    // Use explicit redirect URI that matches Azure app registration
+    const apiUrl = this.configService.get('API_URL');
+    this.redirectUri = `${apiUrl}/api/v1/calendar/oauth/outlook/callback`;
+    
+    console.log('Microsoft OAuth Configuration:');
+    console.log('Client ID:', this.clientId);
+    console.log('Tenant:', this.tenant);
+    console.log('Redirect URI:', this.redirectUri);
   }
 
   /**
@@ -42,10 +50,17 @@ export class MicrosoftOAuthService {
    */
   getAuthUrl(state: string): string {
     const scopes = [
+      'https://graph.microsoft.com/Calendars.Read',
       'https://graph.microsoft.com/Calendars.ReadWrite',
       'https://graph.microsoft.com/User.Read',
       'offline_access',
     ].join(' ');
+
+    console.log('Microsoft OAuth Auth URL generation:');
+    console.log('Client ID:', this.clientId);
+    console.log('Redirect URI:', this.redirectUri);
+    console.log('Tenant:', this.tenant);
+    console.log('Scopes:', scopes);
 
     const authUrl = `https://login.microsoftonline.com/${this.tenant}/oauth2/v2.0/authorize?` +
       `client_id=${this.clientId}&` +
@@ -56,6 +71,7 @@ export class MicrosoftOAuthService {
       `state=${state}&` +
       `prompt=consent`;
 
+    console.log('Generated Auth URL:', authUrl);
     return authUrl;
   }
 
@@ -126,19 +142,58 @@ export class MicrosoftOAuthService {
     });
 
     try {
+      console.log('Microsoft token request URL:', tokenEndpoint);
+      console.log('Microsoft token request params:', {
+        client_id: this.clientId,
+        redirect_uri: this.redirectUri,
+        grant_type: 'authorization_code',
+        code: code ? 'Present' : 'Missing'
+      });
+      console.log('Full request body:', params.toString());
+      
       const response = await axios.post(tokenEndpoint, params, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
 
+      console.log('Microsoft token exchange SUCCESS:');
+      console.log('Response status:', response.status);
+      console.log('Response data type:', typeof response.data);
+      console.log('Response data:', response.data);
+      
       return response.data;
     } catch (error) {
-      console.error('Microsoft token exchange error:', error.response?.data || error.message);
+      console.error('Microsoft token exchange FAILED:');
+      console.error('Error type:', error.constructor.name);
+      console.error('Status:', error.response?.status);
+      console.error('Status text:', error.response?.statusText);
+      console.error('Headers:', error.response?.headers);
+      console.error('Data type:', typeof error.response?.data);
+      console.error('Raw response data (first 500 chars):', 
+        typeof error.response?.data === 'string' 
+          ? error.response.data.substring(0, 500) 
+          : error.response?.data);
+      console.error('Full response data:', error.response?.data);
+      
+      // Additional debugging: Try to identify common Microsoft OAuth errors
+      if (error.response?.status === 400) {
+        console.error('HTTP 400 Bad Request - Possible causes:');
+        console.error('1. Redirect URI mismatch in Azure app registration');
+        console.error('2. Invalid client credentials');
+        console.error('3. Malformed request parameters');
+        console.error('4. Authorization code already used or expired');
+      }
       
       if (error.response?.data) {
         // Microsoft returned an error response
         const errorData = error.response.data;
+        
+        // Check if response is HTML (indicating a configuration error)
+        if (typeof errorData === 'string' && errorData.includes('<html')) {
+          throw new Error('Microsoft OAuth configuration error: Received HTML response instead of JSON. Check Azure app registration redirect URI.');
+        }
+        
         if (errorData.error) {
           throw new Error(`Microsoft OAuth error: ${errorData.error} - ${errorData.error_description || 'Unknown error'}`);
         }

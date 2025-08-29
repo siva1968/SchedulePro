@@ -34,6 +34,8 @@ export class MeetingTypesService {
           organizationId: createMeetingTypeDto.organizationId,
           hostId: userId,
           isActive: createMeetingTypeDto.isActive ?? true,
+          requiresApproval: createMeetingTypeDto.requiresApproval ?? true, // Default to true for approval
+          meetingProvider: 'GOOGLE_MEET', // Default to Google Meet
         },
       });
 

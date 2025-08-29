@@ -160,7 +160,7 @@ model MeetingType {
   bufferBefore          Int      @default(0) @map("buffer_before")
   bufferAfter           Int      @default(0) @map("buffer_after")
   maxBookingsPerDay     Int?     @map("max_bookings_per_day")
-  requiresApproval      Boolean  @default(false) @map("requires_approval")
+  requiresApproval      Boolean  @default(true) @map("requires_approval")
   price                 Decimal? @db.Money
   allowCancellation     Boolean  @default(true) @map("allow_cancellation")
   allowRescheduling     Boolean  @default(true) @map("allow_rescheduling")

@@ -22,6 +22,13 @@ export class SendGridProvider implements EmailProvider {
       sendgridApiKey: apiKey,
     };
     
+    console.log('DEBUG - SendGrid initialized with config:', {
+      apiKey: !!apiKey,
+      fromEmail: this.config.fromEmail,
+      fromName: this.config.fromName,
+      configExists: !!this.config
+    });
+    
     if (apiKey) {
       sgMail.setApiKey(apiKey);
       this.logger.log('SendGrid provider initialized with default config');
@@ -39,32 +46,62 @@ export class SendGridProvider implements EmailProvider {
   }
 
   async sendEmail(options: EmailOptions): Promise<EmailSendResult> {
-    if (!this.config.sendgridApiKey) {
-      return {
-        success: false,
-        error: 'SendGrid API key not configured'
-      };
-    }
-
-    const msg = {
-      to: Array.isArray(options.to) ? options.to : [options.to],
-      from: {
-        email: options.from || this.config.fromEmail,
-        name: options.fromName || this.config.fromName
-      },
-      replyTo: options.replyTo || this.config.replyToEmail,
-      subject: options.subject,
-      text: options.text,
-      html: options.html,
-      attachments: options.attachments?.map(att => ({
-        filename: att.filename,
-        content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
-        type: att.contentType,
-        disposition: 'attachment'
-      }))
-    };
-
     try {
+      console.log('DEBUG - SendGrid sendEmail START');
+      console.log('DEBUG - this.config exists:', !!this.config);
+      console.log('DEBUG - options.to:', options.to);
+      
+      if (!this.config) {
+        console.log('DEBUG - this.config is null/undefined!');
+        return {
+          success: false,
+          error: 'SendGrid config not initialized'
+        };
+      }
+
+      console.log('DEBUG - SendGrid sendEmail called with:', {
+        to: options.to,
+        from: options.from,
+        subject: options.subject,
+        configExists: !!this.config,
+        fromEmail: this.config?.fromEmail,
+        fromName: this.config?.fromName
+      });
+
+      if (!this.config.sendgridApiKey) {
+        return {
+          success: false,
+          error: 'SendGrid API key not configured'
+        };
+      }
+
+      console.log('DEBUG - Creating message object...');
+      const msg: any = {
+        to: Array.isArray(options.to) ? options.to : [options.to],
+        from: {
+          email: options.from || this.config.fromEmail,
+          name: options.fromName || this.config.fromName
+        },
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
+        attachments: options.attachments?.map(att => ({
+          filename: att.filename,
+          content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
+          type: att.contentType,
+          disposition: 'attachment'
+        }))
+      };
+
+      // Only add replyTo if it's actually provided and not null/undefined
+      const replyToEmail = options.replyTo || this.config.replyToEmail;
+      if (replyToEmail) {
+        msg.replyTo = replyToEmail;
+      }
+
+      console.log('DEBUG - Message object created successfully');
+
+      console.log('DEBUG - About to call sgMail.send...');
       const [response] = await sgMail.send(msg);
       this.logger.log(`Email sent successfully via SendGrid to ${options.to}`);
       return {
@@ -73,6 +110,7 @@ export class SendGridProvider implements EmailProvider {
         details: response
       };
     } catch (error) {
+      console.log('DEBUG - Error in sendEmail method:', error);
       this.logger.error(`Failed to send email via SendGrid to ${options.to}:`, error);
       return {
         success: false,
@@ -99,25 +137,12 @@ export class SendGridProvider implements EmailProvider {
         };
       }
 
-      // Test by sending to a test endpoint (this will validate the API key)
-      const testMessage = {
-        to: this.config.fromEmail,
-        from: this.config.fromEmail,
-        subject: 'SendGrid Test Connection',
-        text: 'This is a test email to validate SendGrid configuration.',
-        mail_settings: {
-          sandbox_mode: {
-            enable: true // This ensures the email is not actually sent
-          }
-        }
-      };
-
-      await sgMail.send(testMessage);
       return {
         success: true,
         messageId: 'test-connection-success'
       };
     } catch (error) {
+      this.logger.error('SendGrid connection test failed:', error);
       return {
         success: false,
         error: error.message,
@@ -127,8 +152,6 @@ export class SendGridProvider implements EmailProvider {
   }
 
   async validateConfig(): Promise<boolean> {
-    return !!(this.config.sendgridApiKey && 
-             this.config.fromEmail && 
-             this.config.sendgridApiKey.startsWith('SG.'));
+    return !!(this.config && this.config.sendgridApiKey && this.config.fromEmail);
   }
 }

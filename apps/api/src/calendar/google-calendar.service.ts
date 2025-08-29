@@ -130,7 +130,11 @@ export class GoogleCalendarService {
       return response.data;
     } catch (error) {
       this.logger.error('Failed to create Google Calendar event:', error);
-      throw new Error('Failed to create Google Calendar event');
+      // Preserve the original error message for proper error handling
+      if (error.message) {
+        throw new Error(error.message);
+      }
+      throw error;
     }
   }
 
@@ -158,6 +162,27 @@ export class GoogleCalendarService {
     } catch (error) {
       this.logger.error('Failed to update Google Calendar event:', error);
       throw new Error('Failed to update Google Calendar event');
+    }
+  }
+
+  /**
+   * Get a specific calendar event
+   */
+  async getEvent(accessToken: string, calendarId: string, eventId: string) {
+    try {
+      this.oauth2Client.setCredentials({ access_token: accessToken });
+      const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+
+      const response = await calendar.events.get({
+        calendarId,
+        eventId,
+      });
+
+      this.logger.log(`Retrieved Google Calendar event: ${eventId}`);
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to get Google Calendar event:', error);
+      throw error;
     }
   }
 

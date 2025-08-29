@@ -181,8 +181,12 @@ class ApiClient {
     return this.request(`/bookings/${id}`);
   }
 
-  async getUpcomingBookings(limit: number = 10) {
-    return this.request(`/bookings/upcoming?limit=${limit}`);
+  async getUpcomingBookings(limit: number = 10, page: number = 1) {
+    return this.request(`/bookings/upcoming?limit=${limit}&page=${page}`);
+  }
+
+  async getPendingBookings(limit: number = 10, page: number = 1) {
+    return this.request(`/bookings/pending?limit=${limit}&page=${page}`);
   }
 
   async createBooking(data: {

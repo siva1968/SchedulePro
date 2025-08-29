@@ -90,16 +90,34 @@ export const formatDateTimeInUserTimezone = (
   const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
   const timezone = userTimezone || getSystemTimezone();
   
-  const formatOptions: Intl.DateTimeFormatOptions = {
+  // Create base format options
+  let formatOptions: Intl.DateTimeFormatOptions = {
     timeZone: timezone,
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: options?.hourCycle !== 'h23',
-    ...options,
   };
+
+  // If dateStyle or timeStyle are provided, use them (they can't be combined with other date/time properties)
+  if (options?.dateStyle || options?.timeStyle) {
+    if (options.dateStyle) {
+      formatOptions.dateStyle = options.dateStyle;
+    }
+    if (options.timeStyle) {
+      formatOptions.timeStyle = options.timeStyle;
+    }
+    if (options.hourCycle) {
+      formatOptions.hourCycle = options.hourCycle;
+    }
+  } else {
+    // Use detailed format options when dateStyle/timeStyle are not provided
+    formatOptions = {
+      ...formatOptions,
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: options?.hourCycle !== 'h23',
+    };
+  }
 
   const formattedDate = date.toLocaleString('en-US', formatOptions);
   

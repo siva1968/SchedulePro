@@ -427,41 +427,61 @@ export class BookingsService {
     return updatedBooking;
   }
 
-  async getUpcomingBookings(userId: string, limit: number = 10): Promise<any[]> {
-    return await this.prisma.booking.findMany({
-      where: {
-        OR: [
-          { hostId: userId },
-          { attendees: { some: { userId } } },
-        ],
-        startTime: {
-          gte: new Date(),
-        },
-        status: {
-          in: [BookingStatus.CONFIRMED, BookingStatus.RESCHEDULED],
-        },
+  async getUpcomingBookings(userId: string, page: number = 1, limit: number = 10): Promise<{
+    bookings: any[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const skip = (page - 1) * limit;
+    
+    const where = {
+      OR: [
+        { hostId: userId },
+        { attendees: { some: { userId } } },
+      ],
+      startTime: {
+        gte: new Date(),
       },
-      take: limit,
-      orderBy: { startTime: 'asc' },
-      include: {
-        attendees: true,
-        meetingType: {
-          select: {
-            id: true,
-            name: true,
-            duration: true,
+      status: {
+        in: [BookingStatus.CONFIRMED, BookingStatus.RESCHEDULED],
+      },
+    };
+
+    const [bookings, total] = await Promise.all([
+      this.prisma.booking.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { startTime: 'asc' },
+        include: {
+          attendees: true,
+          meetingType: {
+            select: {
+              id: true,
+              name: true,
+              duration: true,
+            },
+          },
+          host: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
           },
         },
-        host: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-      },
-    });
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      total,
+      page,
+      limit,
+    };
   }
 
   // Private helper methods
@@ -763,13 +783,14 @@ export class BookingsService {
           startTime: startTime,
           endTime: finalEndTime,
           hostId,
-          status: BookingStatus.CONFIRMED,
+          // Set status based on whether approval is required
+          status: meetingType.requiresApproval ? BookingStatus.PENDING : BookingStatus.CONFIRMED,
           // Use the provided meeting provider or fall back to the meeting type's default
           meetingProvider: createBookingDto.meetingProvider || meetingType.meetingProvider,
           attendees: {
             create: attendees.map((attendee) => ({
               ...attendee,
-              status: 'CONFIRMED',
+              status: meetingType.requiresApproval ? 'PENDING' : 'CONFIRMED',
             })),
           },
         },
@@ -787,12 +808,21 @@ export class BookingsService {
         },
       });
 
-      // Send email notifications
+      // Send email notifications based on approval status
       try {
-        await Promise.all([
-          this.emailService.sendBookingConfirmation(booking),
-          this.emailService.sendBookingNotificationToHost(booking),
-        ]);
+        if (meetingType.requiresApproval) {
+          // For pending bookings, send different notifications
+          await Promise.all([
+            this.emailService.sendBookingPendingConfirmation(booking),
+            this.emailService.sendBookingApprovalRequest(booking),
+          ]);
+        } else {
+          // For auto-confirmed bookings, send regular confirmations
+          await Promise.all([
+            this.emailService.sendBookingConfirmation(booking),
+            this.emailService.sendBookingNotificationToHost(booking),
+          ]);
+        }
       } catch (emailError) {
         console.error('Failed to send booking notification emails:', emailError);
         // Don't fail the booking creation if email fails
@@ -1210,6 +1240,256 @@ export class BookingsService {
     }
 
     return updatedBooking;
+  }
+
+  // Booking approval methods
+  async approveBooking(bookingId: string, hostId: string): Promise<any> {
+    // Verify the booking exists and belongs to the host
+    const booking = await this.prisma.booking.findFirst({
+      where: {
+        id: bookingId,
+        hostId: hostId,
+        status: BookingStatus.PENDING,
+      },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Pending booking not found or access denied');
+    }
+
+    // Check for conflicts before approving
+    await this.checkTimeConflicts(
+      booking.hostId,
+      new Date(booking.startTime),
+      new Date(booking.endTime),
+      booking.id
+    );
+
+    // Update booking status to confirmed
+    const updatedBooking = await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: BookingStatus.CONFIRMED,
+        attendees: {
+          updateMany: {
+            where: { bookingId },
+            data: { status: 'CONFIRMED' }
+          }
+        }
+      },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Generate meeting link if needed
+    let meetingUrl = null;
+    try {
+      meetingUrl = await this.generateMeetingLink(updatedBooking);
+      if (meetingUrl) {
+        await this.prisma.booking.update({
+          where: { id: bookingId },
+          data: { meetingUrl }
+        });
+        updatedBooking.meetingUrl = meetingUrl;
+      }
+    } catch (meetingError) {
+      console.error('Failed to generate meeting link:', meetingError);
+      // Don't fail the approval if meeting link generation fails
+    }
+
+    // Fetch the updated booking with the meeting URL to ensure email has the latest data
+    const finalBooking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Send confirmation emails
+    try {
+      await Promise.all([
+        this.emailService.sendBookingApprovalConfirmation(finalBooking, meetingUrl),
+        this.emailService.sendBookingConfirmedNotificationToHost(finalBooking),
+      ]);
+    } catch (emailError) {
+      console.error('Failed to send approval confirmation emails:', emailError);
+      // Don't fail the approval if email fails
+    }
+
+    return updatedBooking;
+  }
+
+  async declineBooking(bookingId: string, hostId: string, reason?: string): Promise<any> {
+    // Verify the booking exists and belongs to the host
+    const booking = await this.prisma.booking.findFirst({
+      where: {
+        id: bookingId,
+        hostId: hostId,
+        status: BookingStatus.PENDING,
+      },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Pending booking not found or access denied');
+    }
+
+    // Update booking status to cancelled
+    const updatedBooking = await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: BookingStatus.CANCELLED,
+        notes: reason ? `${booking.notes || ''}\nDecline reason: ${reason}` : booking.notes,
+        attendees: {
+          updateMany: {
+            where: { bookingId },
+            data: { status: 'CANCELLED' }
+          }
+        }
+      },
+      include: {
+        attendees: true,
+        meetingType: true,
+        host: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Send decline notification
+    try {
+      await this.emailService.sendBookingDeclineNotification(updatedBooking, reason);
+    } catch (emailError) {
+      console.error('Failed to send decline notification emails:', emailError);
+      // Don't fail the decline if email fails
+    }
+
+    return updatedBooking;
+  }
+
+  async getPendingBookings(hostId: string, page: number = 1, limit: number = 10): Promise<{
+    bookings: any[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const skip = (page - 1) * limit;
+    
+    const where = {
+      hostId,
+      status: BookingStatus.PENDING,
+    };
+
+    const [bookings, total] = await Promise.all([
+      this.prisma.booking.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          attendees: true,
+          meetingType: {
+            select: {
+              id: true,
+              name: true,
+              duration: true,
+            },
+          },
+        },
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  // Meeting link generation helper
+  private async generateMeetingLink(booking: any): Promise<string | null> {
+    const provider = booking.meetingProvider || booking.meetingType.meetingProvider;
+    
+    switch (provider) {
+      case 'GOOGLE_MEET':
+        return await this.generateGoogleMeetLink(booking);
+      case 'MICROSOFT_TEAMS':
+        return await this.generateTeamsLink(booking);
+      case 'ZOOM':
+        return await this.generateZoomLink(booking);
+      default:
+        return null;
+    }
+  }
+
+  private async generateGoogleMeetLink(booking: any): Promise<string | null> {
+    // Generate a unique Google Meet link
+    // This is a simple implementation - you might want to integrate with Google Calendar API
+    const meetId = `${booking.id.substring(0, 8)}-${Date.now().toString(36)}`;
+    return `https://meet.google.com/${meetId}`;
+  }
+
+  private async generateTeamsLink(booking: any): Promise<string | null> {
+    // Generate a Teams meeting link
+    // This would typically integrate with Microsoft Graph API
+    const meetId = `${booking.id.substring(0, 8)}-${Date.now().toString(36)}`;
+    return `https://teams.microsoft.com/l/meetup-join/${meetId}`;
+  }
+
+  private async generateZoomLink(booking: any): Promise<string | null> {
+    // Generate a Zoom meeting link
+    // This would typically integrate with Zoom API
+    const meetId = `${booking.id.substring(0, 8)}-${Date.now().toString(36)}`;
+    return `https://zoom.us/j/${meetId}`;
   }
 
   async cancelBookingPublic(bookingId: string, token: string, reason?: string): Promise<any> {

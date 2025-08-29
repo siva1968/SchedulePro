@@ -79,6 +79,16 @@ export class CreateMeetingTypeDto {
   isActive?: boolean;
 
   @ApiProperty({
+    description: 'Whether bookings require approval from the host',
+    example: true,
+    required: false,
+    default: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  requiresApproval?: boolean;
+
+  @ApiProperty({
     description: 'Minimum notice time in minutes',
     example: 1440, // 24 hours
     required: false,

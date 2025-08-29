@@ -199,6 +199,40 @@ export class UsersService {
     return { message: 'User permanently deleted' };
   }
 
+  async changePassword(id: string, currentPassword: string, newPassword: string) {
+    // Check if user exists and get current password hash
+    const existingUser = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, passwordHash: true },
+    });
+
+    if (!existingUser) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    // Verify current password
+    if (!existingUser.passwordHash) {
+      throw new BadRequestException('User does not have a password set');
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, existingUser.passwordHash);
+    if (!isCurrentPasswordValid) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    // Hash new password
+    const saltRounds = 10;
+    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update password
+    await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash: newPasswordHash },
+    });
+
+    return { message: 'Password successfully changed' };
+  }
+
   async getUserAvailability(userId: string, startDate: Date, endDate: Date) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

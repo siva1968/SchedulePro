@@ -166,13 +166,58 @@ export class CalendarService {
             } : undefined,
           };
 
-          const createdEvent = await this.googleCalendarService.createEvent(
-            accessToken,
-            integration.calendarId || 'primary',
-            googleEvent,
-          );
+          try {
+            const createdEvent = await this.googleCalendarService.createEvent(
+              accessToken,
+              integration.calendarId || 'primary',
+              googleEvent,
+            );
+            eventId = createdEvent.id;
+          } catch (error) {
+            console.log('Calendar sync error details:', error);
+            // If credentials are invalid, try to refresh the token
+            if ((error.message && error.message.includes('Invalid Credentials')) || 
+                (error.code && error.code === 401) ||
+                (error.toString && error.toString().includes('Invalid Credentials'))) {
+              
+              if (integration.refreshToken) {
+                try {
+                  console.log('Access token expired, attempting to refresh...');
+                  const refreshToken = await this.encryptionService.decrypt(integration.refreshToken);
+                  const newTokens = await this.googleCalendarService.refreshAccessToken(refreshToken);
+                  
+                  // Update the integration with new tokens
+                  const newAccessToken = await this.encryptionService.encrypt(newTokens.access_token);
+                  await this.prisma.calendarIntegration.update({
+                    where: { id: integration.id },
+                    data: { 
+                      accessToken: newAccessToken,
+                      ...(newTokens.refresh_token && {
+                        refreshToken: await this.encryptionService.encrypt(newTokens.refresh_token)
+                      })
+                    },
+                  });
 
-          eventId = createdEvent.id;
+                  console.log('Token refreshed successfully, retrying event creation...');
+                  // Retry with new access token
+                  const createdEvent = await this.googleCalendarService.createEvent(
+                    newTokens.access_token,
+                    integration.calendarId || 'primary',
+                    googleEvent,
+                  );
+                  eventId = createdEvent.id;
+                } catch (refreshError) {
+                  console.error('Failed to refresh Google Calendar token:', refreshError);
+                  throw new Error(`Failed to sync to Google Calendar: ${refreshError.message}`);
+                }
+              } else {
+                console.error('No refresh token available for Google Calendar integration');
+                throw new Error('Google Calendar integration needs to be re-authenticated. No refresh token available.');
+              }
+            } else {
+              throw error;
+            }
+          }
         }
         else if (integration.provider === CalendarProvider.OUTLOOK) {
           // Create Outlook Calendar event
@@ -431,5 +476,25 @@ export class CalendarService {
   // Helper methods for future calendar API integration
   private async validateCredentials(provider: CalendarProvider, accessToken: string) {
     return true;
+  }
+
+  /**
+   * Get calendar event details
+   */
+  async getCalendarEvent(eventId: string, calendarId: string) {
+    // Get user's calendar integration for the calendar
+    const integration = await this.prisma.calendarIntegration.findFirst({
+      where: {
+        calendarId: calendarId,
+        isActive: true,
+      },
+    });
+
+    if (!integration) {
+      throw new Error('Calendar integration not found');
+    }
+
+    const accessToken = await this.encryptionService.decrypt(integration.accessToken);
+    return await this.googleCalendarService.getEvent(accessToken, calendarId, eventId);
   }
 }

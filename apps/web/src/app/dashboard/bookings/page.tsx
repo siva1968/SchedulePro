@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useBookingStore } from '@/stores/booking-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { useUserTimezone } from '@/hooks/useUserTimezone';
 import { formatDateTimeInUserTimezone, getTimeRangeInUserTimezone } from '@/lib/timezone';
 import { Card } from '@/components/ui/card';
@@ -22,9 +24,11 @@ const statusColors = {
 };
 
 export default function BookingsPage() {
+  const { isAuthenticated, user } = useAuthStore();
   const {
     bookings,
     upcomingBookings,
+    pendingBookings,
     isLoading,
     error,
     page,
@@ -32,9 +36,11 @@ export default function BookingsPage() {
     total,
     fetchBookings,
     fetchUpcomingBookings,
+    fetchPendingBookings,
     cancelBooking,
     syncBookingToCalendar,
     removeBookingFromCalendar,
+    setPageSize,
   } = useBookingStore();
 
   const [filter, setFilter] = useState({
@@ -51,9 +57,13 @@ export default function BookingsPage() {
   const userTimezone = useUserTimezone();
 
   useEffect(() => {
-    fetchBookings();
-    fetchUpcomingBookings(5);
-  }, [fetchBookings, fetchUpcomingBookings]);
+    // Only fetch data when user is authenticated and user data is loaded
+    if (isAuthenticated && user) {
+      fetchBookings();
+      fetchUpcomingBookings(5);
+      fetchPendingBookings();
+    }
+  }, [isAuthenticated, user, fetchBookings, fetchUpcomingBookings, fetchPendingBookings]);
 
   const handleFilterChange = (key: string, value: string) => {
     setFilter(prev => ({ ...prev, [key]: value }));
@@ -161,7 +171,14 @@ export default function BookingsPage() {
         title="Bookings" 
         description="Manage your appointments and meetings"
       >
-        <Button onClick={() => setIsCreateModalOpen(true)}>Create Booking</Button>
+        <div className="flex gap-3">
+          <Link href="/dashboard/bookings/pending">
+            <Button variant="outline" className="border-yellow-300 text-yellow-700 hover:bg-yellow-50">
+              Pending Approvals
+            </Button>
+          </Link>
+          <Button onClick={() => setIsCreateModalOpen(true)}>Create Booking</Button>
+        </div>
       </DashboardPageHeader>
       <DashboardPageContainer>
 
@@ -172,7 +189,7 @@ export default function BookingsPage() {
       )}
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-2">Total Bookings</h3>
           <p className="text-3xl font-bold text-blue-600">{total}</p>
@@ -180,6 +197,17 @@ export default function BookingsPage() {
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-2">Upcoming</h3>
           <p className="text-3xl font-bold text-green-600">{upcomingBookings.length}</p>
+        </Card>
+        <Card className="p-6 border-l-4 border-l-yellow-400">
+          <h3 className="text-lg font-semibold mb-2">Pending Approval</h3>
+          <p className="text-3xl font-bold text-yellow-600">{pendingBookings.length}</p>
+          {pendingBookings.length > 0 && (
+            <Link href="/dashboard/bookings/pending">
+              <Button size="sm" variant="outline" className="mt-2 text-yellow-700 border-yellow-300 hover:bg-yellow-50">
+                Review Now
+              </Button>
+            </Link>
+          )}
         </Card>
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-2">This Month</h3>
@@ -232,13 +260,14 @@ export default function BookingsPage() {
       {/* Filters */}
       <Card className="p-6 mb-6">
         <h3 className="font-semibold mb-4">Filters</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Status</label>
             <select
               className="w-full p-2 border rounded-md"
               value={filter.status}
               onChange={(e) => handleFilterChange('status', e.target.value)}
+              title="Filter by booking status"
             >
               <option value="">All Status</option>
               <option value="PENDING">Pending</option>
@@ -254,6 +283,7 @@ export default function BookingsPage() {
               className="w-full p-2 border rounded-md"
               value={filter.startDate}
               onChange={(e) => handleFilterChange('startDate', e.target.value)}
+              title="Filter by start date"
             />
           </div>
           <div>
@@ -263,7 +293,21 @@ export default function BookingsPage() {
               className="w-full p-2 border rounded-md"
               value={filter.endDate}
               onChange={(e) => handleFilterChange('endDate', e.target.value)}
+              title="Filter by end date"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Page Size</label>
+            <select
+              className="w-full p-2 border rounded-md"
+              value={limit}
+              onChange={(e) => setPageSize(parseInt(e.target.value))}
+              title="Number of bookings per page"
+            >
+              <option value={10}>10 per page</option>
+              <option value={20}>20 per page</option>
+              <option value={50}>50 per page</option>
+            </select>
           </div>
           <div className="flex items-end">
             <Button onClick={applyFilters} className="w-full">
@@ -352,8 +396,11 @@ export default function BookingsPage() {
         )}
 
         {/* Pagination */}
-        {total > limit && (
+        {bookings.length > 0 && (
           <div className="flex justify-center items-center space-x-4 mt-6">
+            <div className="text-sm text-gray-500 mr-4">
+              Total: {total} | Limit: {limit} | Page: {page}
+            </div>
             <Button
               variant="outline"
               disabled={page === 1}

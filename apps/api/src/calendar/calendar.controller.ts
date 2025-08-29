@@ -113,4 +113,43 @@ export class CalendarController {
     const integrationIdArray = integrationIds ? integrationIds.split(',') : undefined;
     return this.calendarService.checkConflicts(req.user.id, startTime, endTime, integrationIdArray);
   }
+
+  @Get('verify-event/:eventId')
+  @ApiOperation({ summary: 'Verify if a calendar event exists' })
+  @ApiResponse({ status: 200, description: 'Event verification result' })
+  async verifyEvent(
+    @Param('eventId') eventId: string,
+    @Request() req: any
+  ) {
+    try {
+      // Get user's active calendar integrations
+      const allIntegrations = await this.calendarService.findAllIntegrations(req.user.id);
+      const integrations = allIntegrations.filter(integration => integration.syncEnabled);
+      
+      if (integrations.length === 0) {
+        return {
+          success: false,
+          error: 'No active calendar integrations found'
+        };
+      }
+
+      // Use the first active integration
+      const integration = integrations[0];
+
+      // Get event details from Google Calendar
+      const eventDetails = await this.calendarService.getCalendarEvent(eventId, integration.calendarId);
+
+      return {
+        success: true,
+        event: eventDetails
+      };
+
+    } catch (error) {
+      console.error('Error verifying calendar event:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
