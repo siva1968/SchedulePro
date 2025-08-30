@@ -36,6 +36,8 @@ interface TimeSlot {
   startTime: string;
   endTime: string;
   label: string;
+  available?: boolean;
+  reason?: string | null;
 }
 
 interface BookingFormData {
@@ -344,26 +346,68 @@ export default function PublicBookingPage() {
                 </div>
               </div>
 
-              {/* Time Slots */}
+              {/* Time Slots with Enhanced Visual Design */}
               {formData.selectedDate && (
                 <div>
-                  <Label className="text-base font-medium">Available Times</Label>
-                  <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <div className="flex items-center justify-between mb-4">
+                    <Label className="text-base font-medium">Available Times</Label>
+                    <div className="flex items-center space-x-4 text-xs text-gray-500">
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-blue-100 border border-blue-300 rounded mr-2"></div>
+                        <span>Available</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-gray-100 border border-gray-300 rounded mr-2"></div>
+                        <span>Booked</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     {availableSlots.length > 0 ? (
-                      availableSlots.map((slot, index) => (
-                        <Button
-                          key={index}
-                          variant="outline"
-                          className="text-left justify-start"
-                          onClick={() => handleSlotSelect(slot)}
-                        >
-                          {slot.label}
-                        </Button>
-                      ))
+                      availableSlots.map((slot, index) => {
+                        const isAvailable = slot.available !== false;
+                        const isSelected = formData.selectedSlot?.startTime === slot.startTime;
+                        
+                        return (
+                          <Button
+                            key={index}
+                            variant={isSelected ? "default" : "outline"}
+                            className={`h-16 text-left justify-center flex-col transition-all duration-200 ${
+                              isSelected 
+                                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg transform scale-105' 
+                                : isAvailable
+                                ? 'hover:bg-blue-50 hover:border-blue-300 hover:shadow-md'
+                                : 'opacity-50 cursor-not-allowed bg-gray-50'
+                            }`}
+                            onClick={() => isAvailable ? handleSlotSelect(slot) : null}
+                            disabled={!isAvailable}
+                            title={isAvailable ? `Click to select ${slot.label}` : 'This time slot is already booked'}
+                          >
+                            <span className="font-semibold text-sm">{slot.label}</span>
+                            <span className="text-xs opacity-75 mt-1">
+                              {isAvailable ? 'Available' : 'Booked'}
+                            </span>
+                          </Button>
+                        );
+                      })
                     ) : (
-                      <p className="col-span-full text-gray-500 py-4 text-center">
-                        No available time slots for this date
-                      </p>
+                      <div className="col-span-full bg-gray-50 rounded-lg p-8 text-center">
+                        <div className="flex flex-col items-center">
+                          <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <h3 className="font-medium text-gray-900 mb-2">No available time slots</h3>
+                          <p className="text-sm text-gray-500 mb-4">There are no available times for this date</p>
+                          <Button variant="outline" size="sm" onClick={() => {
+                            const tomorrow = new Date();
+                            tomorrow.setDate(tomorrow.getDate() + 1);
+                            handleDateChange(tomorrow.toISOString().split('T')[0]);
+                          }}>
+                            Try Tomorrow
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>

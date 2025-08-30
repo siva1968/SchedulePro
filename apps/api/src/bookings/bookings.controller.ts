@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
+import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto, UpdateBookingDto, BookingQueryDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/auth.decorators';
@@ -23,7 +24,10 @@ import { Public } from '../auth/decorators/auth.decorators';
 @UseGuards(JwtAuthGuard)
 @Controller('bookings')
 export class BookingsController {
-  constructor(private readonly bookingsService: BookingsService) {}
+  constructor(
+    private readonly bookingsService: BookingsService,
+    private readonly calendarService: CalendarService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new booking' })
@@ -89,9 +93,22 @@ export class BookingsController {
   cancel(
     @Param('id') id: string,
     @Body('reason') reason: string,
+    @Body('removeFromCalendar') removeFromCalendar: boolean,
     @Req() req: any,
   ) {
-    return this.bookingsService.cancel(id, req.user.id, reason);
+    return this.bookingsService.cancel(id, req.user.id, reason, removeFromCalendar);
+  }
+
+  @Post(':id/remove-from-calendar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove booking from calendar' })
+  @ApiResponse({ status: 200, description: 'Booking removed from calendar successfully' })
+  @ApiResponse({ status: 404, description: 'Booking not found' })
+  async removeFromCalendar(
+    @Param('id') id: string,
+    @Req() req: any,
+  ) {
+    return this.calendarService.removeBookingFromCalendar(id);
   }
 
   @Post(':id/reschedule')
@@ -160,8 +177,16 @@ export class PublicBookingsController {
     @Query('meetingTypeId') meetingTypeId: string,
     @Query('date') date: string,
     @Query('timezone') timezone?: string,
+    @Query('includeUnavailable') includeUnavailable?: string,
   ) {
-    return this.bookingsService.getAvailableSlotsForMeetingType(meetingTypeId, date, timezone);
+    const result = await this.bookingsService.getAvailableSlotsForMeetingType(meetingTypeId, date, timezone);
+    
+    // If includeUnavailable is 'true', return all slots, otherwise just available slots
+    if (includeUnavailable === 'true') {
+      return result; // Return full result with availableSlots, unavailableSlots, and allSlots
+    } else {
+      return { availableSlots: result.availableSlots }; // Return only available slots for backward compatibility
+    }
   }
 
   @Get('meeting-type/:id/providers')
@@ -236,9 +261,9 @@ export class PublicBookingsController {
   @ApiResponse({ status: 400, description: 'Invalid token' })
   async cancelBookingPublic(
     @Param('id') bookingId: string,
-    @Body() body: { token: string; reason?: string },
+    @Body() body: { token: string; reason?: string; removeFromCalendar?: boolean },
   ) {
-    return this.bookingsService.cancelBookingPublic(bookingId, body.token, body.reason);
+    return this.bookingsService.cancelBookingPublic(bookingId, body.token, body.reason, body.removeFromCalendar);
   }
 
 }

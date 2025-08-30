@@ -28,7 +28,35 @@ interface TimeSlot {
   startTime: string;
   endTime: string;
   label: string;
+  available?: boolean;
+  reason?: string | null;
 }
+
+// Helper function to get user's timezone
+const getUserTimezone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch (error) {
+    console.warn('Could not detect timezone, falling back to UTC');
+    return 'UTC';
+  }
+};
+
+// Common timezones for the selector
+const COMMON_TIMEZONES = [
+  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+  { value: 'America/New_York', label: 'Eastern Time (US & Canada)' },
+  { value: 'America/Chicago', label: 'Central Time (US & Canada)' },
+  { value: 'America/Denver', label: 'Mountain Time (US & Canada)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (US & Canada)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET/CEST)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Asia/Shanghai', label: 'Shanghai (CST)' },
+  { value: 'Asia/Kolkata', label: 'India (IST)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' },
+];
 
 export default function RescheduleBookingPage() {
   const params = useParams();
@@ -41,12 +69,19 @@ export default function RescheduleBookingPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
+  const [selectedTimezone, setSelectedTimezone] = useState('');
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+
+  // Initialize timezone on component mount
+  useEffect(() => {
+    const userTz = getUserTimezone();
+    setSelectedTimezone(userTz);
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -59,10 +94,10 @@ export default function RescheduleBookingPage() {
   }, [bookingId, token]);
 
   useEffect(() => {
-    if (selectedDate && booking) {
+    if (selectedDate && booking && selectedTimezone) {
       fetchAvailableSlots();
     }
-  }, [selectedDate, booking]);
+  }, [selectedDate, booking, selectedTimezone]);
 
   const fetchBookingDetails = async () => {
     try {
@@ -101,18 +136,19 @@ export default function RescheduleBookingPage() {
   };
 
   const fetchAvailableSlots = async () => {
-    if (!booking || !selectedDate) return;
+    if (!booking || !selectedDate || !selectedTimezone) return;
     
     setLoadingSlots(true);
     console.log('DEBUG - Fetching slots for:', {
       meetingTypeId: booking.meetingType.id,
       date: selectedDate,
-      url: `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${booking.meetingType.id}&date=${selectedDate}&timezone=UTC`
+      timezone: selectedTimezone,
+      url: `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${booking.meetingType.id}&date=${selectedDate}&timezone=${encodeURIComponent(selectedTimezone)}&includeUnavailable=true`
     });
     
     try {
       const response = await fetch(
-        `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${booking.meetingType.id}&date=${selectedDate}&timezone=UTC`,
+        `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${booking.meetingType.id}&date=${selectedDate}&timezone=${encodeURIComponent(selectedTimezone)}&includeUnavailable=true`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -129,7 +165,9 @@ export default function RescheduleBookingPage() {
       const data = await response.json();
       console.log('DEBUG - Response data:', data);
       
-      setAvailableSlots(data.availableSlots || []);
+      // Use allSlots if available, fallback to availableSlots for backward compatibility
+      const slots = data.allSlots || data.availableSlots || [];
+      setAvailableSlots(slots);
       setSelectedTime(''); // Reset selected time when date changes
       
       // Show message if no slots available
@@ -163,6 +201,10 @@ export default function RescheduleBookingPage() {
       const selectedSlot = availableSlots.find(slot => slot.startTime === selectedTime);
       if (!selectedSlot) {
         throw new Error('Selected time slot is no longer available');
+      }
+
+      if (selectedSlot.available === false) {
+        throw new Error('Selected time slot is not available');
       }
 
       const response = await fetch(
@@ -254,8 +296,21 @@ export default function RescheduleBookingPage() {
   const formatTimeSlot = (startTime: string) => {
     return new Date(startTime).toLocaleTimeString([], { 
       hour: '2-digit', 
-      minute: '2-digit' 
+      minute: '2-digit',
+      timeZone: selectedTimezone
     });
+  };
+
+  const formatDateTime = (dateTime: string) => {
+    const date = new Date(dateTime);
+    return {
+      date: date.toLocaleDateString([], { timeZone: selectedTimezone }),
+      time: date.toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        timeZone: selectedTimezone
+      })
+    };
   };
 
   return (
@@ -278,11 +333,20 @@ export default function RescheduleBookingPage() {
                   <div>
                     <span className="font-medium text-gray-700">Current Date & Time:</span>
                     <span className="ml-2 text-gray-900">
-                      {new Date(booking.startTime).toLocaleDateString()} at{' '}
-                      {new Date(booking.startTime).toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
+                      {selectedTimezone ? (
+                        <>
+                          {formatDateTime(booking.startTime).date} at {formatDateTime(booking.startTime).time}
+                          <span className="text-sm text-gray-500 ml-1">({selectedTimezone})</span>
+                        </>
+                      ) : (
+                        <>
+                          {new Date(booking.startTime).toLocaleDateString()} at{' '}
+                          {new Date(booking.startTime).toLocaleTimeString([], { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </>
+                      )}
                     </span>
                   </div>
                   <div>
@@ -299,6 +363,27 @@ export default function RescheduleBookingPage() {
               </div>
 
               <form onSubmit={handleReschedule} className="space-y-6">
+                <div>
+                  <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 mb-2">
+                    Timezone
+                  </label>
+                  <select
+                    id="timezone"
+                    value={selectedTimezone}
+                    onChange={(e) => setSelectedTimezone(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    {COMMON_TIMEZONES.map((tz) => (
+                      <option key={tz.value} value={tz.value}>
+                        {tz.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Your detected timezone: {getUserTimezone()}
+                  </p>
+                </div>
+
                 <div>
                   <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-2">
                     Select New Date
@@ -318,30 +403,78 @@ export default function RescheduleBookingPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Select Time Slot
                     </label>
+                    
+                    {/* Legend */}
+                    {availableSlots.length > 0 && !loadingSlots && (
+                      <div className="flex items-center space-x-4 mb-3 text-xs text-gray-600">
+                        <div className="flex items-center">
+                          <div className="w-3 h-3 bg-white border border-gray-300 rounded mr-1"></div>
+                          <span>Available</span>
+                        </div>
+                        <div className="flex items-center">
+                          <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded mr-1 relative">
+                            <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full transform translate-x-0.5 -translate-y-0.5"></span>
+                          </div>
+                          <span>Unavailable</span>
+                        </div>
+                      </div>
+                    )}
+                    
                     {loadingSlots ? (
-                      <div className="text-center py-4">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                        <p className="mt-2 text-gray-600">Loading available times...</p>
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                        <p className="mt-4 text-gray-600 font-medium">Loading available times...</p>
+                        <p className="text-sm text-gray-500 mt-1">Please wait while we check availability</p>
                       </div>
                     ) : availableSlots.length > 0 ? (
-                      <div className="grid grid-cols-3 gap-2">
-                        {availableSlots.map((slot) => (
-                          <button
-                            key={slot.startTime}
-                            type="button"
-                            onClick={() => setSelectedTime(slot.startTime)}
-                            className={`p-2 text-sm rounded-md border ${
-                              selectedTime === slot.startTime
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-white text-gray-900 border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            {formatTimeSlot(slot.startTime)}
-                          </button>
-                        ))}
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {availableSlots.map((slot) => {
+                          const isAvailable = slot.available !== false;
+                          const isSelected = selectedTime === slot.startTime;
+                          
+                          return (
+                            <button
+                              key={slot.startTime}
+                              type="button"
+                              onClick={() => isAvailable ? setSelectedTime(slot.startTime) : null}
+                              disabled={!isAvailable}
+                              className={`p-4 text-sm rounded-lg border transition-all duration-200 relative group ${
+                                isSelected && isAvailable
+                                  ? 'bg-blue-600 text-white border-blue-600 shadow-lg transform scale-105'
+                                  : isAvailable
+                                  ? 'bg-white text-gray-900 border-gray-300 hover:bg-blue-50 hover:border-blue-400 hover:shadow-md'
+                                  : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
+                              }`}
+                              title={!isAvailable ? (slot.reason === 'BOOKED' ? 'This time slot is already booked' : 'This time slot is not available') : `Click to select ${slot.label || formatTimeSlot(slot.startTime)}`}
+                            >
+                              <div className="flex flex-col items-center">
+                                <span className="font-semibold">
+                                  {slot.label || formatTimeSlot(slot.startTime)}
+                                </span>
+                                <span className="text-xs opacity-75 mt-1">
+                                  {isAvailable ? 'Available' : 'Booked'}
+                                </span>
+                              </div>
+                              {!isAvailable && (
+                                <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></div>
+                              )}
+                              {isSelected && (
+                                <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     ) : (
-                      <p className="text-gray-600 py-4">No available time slots for this date.</p>
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                        <div className="flex flex-col items-center">
+                          <svg className="w-12 h-12 text-yellow-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.728-.833-2.498 0L4.316 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                          </svg>
+                          <h3 className="font-medium text-yellow-800 mb-2">No time slots available</h3>
+                          <p className="text-sm text-yellow-700">There are no available times for this date. Please try selecting a different date.</p>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}

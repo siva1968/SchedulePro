@@ -24,6 +24,8 @@ interface TimeSlot {
   startTime: string;
   endTime: string;
   label: string;
+  available?: boolean;
+  reason?: string | null;
 }
 
 interface CreateBookingData {
@@ -80,7 +82,7 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
       }
 
       try {
-        const url = `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${formData.meetingTypeId}&date=${formData.selectedDate}&timezone=${encodeURIComponent(formData.timezone)}`;
+        const url = `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${formData.meetingTypeId}&date=${formData.selectedDate}&timezone=${encodeURIComponent(formData.timezone)}&includeUnavailable=true`;
         console.log('🕐 CreateBookingModal: Fetching slots from:', url);
         
         const response = await fetch(url);
@@ -88,8 +90,11 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
           throw new Error('Failed to fetch available slots');
         }
         const data = await response.json();
-        console.log('🕐 CreateBookingModal: Received slots:', data.availableSlots);
-        setAvailableSlots(data.availableSlots || []);
+        console.log('🕐 CreateBookingModal: Received slots data:', data);
+        
+        // Use allSlots if available, fallback to availableSlots for backward compatibility
+        const slots = data.allSlots || data.availableSlots || [];
+        setAvailableSlots(slots);
       } catch (error) {
         console.error('🕐 CreateBookingModal: Error fetching available slots:', error);
         setAvailableSlots([]);
@@ -119,12 +124,15 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
   };
 
   const handleSlotSelect = (slot: TimeSlot) => {
-    setFormData(prev => ({
-      ...prev,
-      selectedSlot: slot,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
-    }));
+    // Only allow selection of available slots
+    if (slot.available !== false) {
+      setFormData(prev => ({
+        ...prev,
+        selectedSlot: slot,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+      }));
+    }
   };
 
   const handleTimezoneChange = (timezone: string) => {
@@ -324,28 +332,69 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
           {formData.selectedDate && formData.meetingTypeId && formData.timezone && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Available Time Slots *
+                Time Slots *
               </label>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              
+              {/* Legend */}
+              <div className="flex items-center space-x-4 mb-3 text-xs text-gray-600">
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-white border border-gray-300 rounded mr-1"></div>
+                  <span>Available</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded mr-1 relative">
+                    <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full transform translate-x-0.5 -translate-y-0.5"></span>
+                  </div>
+                  <span>Unavailable</span>
+                </div>
+              </div>
+              
+              {/* Time Slots Grid with Enhanced Display */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {availableSlots.length > 0 ? (
-                  availableSlots.map((slot, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      onClick={() => handleSlotSelect(slot)}
-                      className={`px-3 py-2 text-sm border rounded-md transition-colors ${
-                        formData.selectedSlot?.startTime === slot.startTime
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                      }`}
-                      disabled={isLoading}
-                    >
-                      {slot.label}
-                    </button>
-                  ))
+                  availableSlots.map((slot, index) => {
+                    const isAvailable = slot.available !== false;
+                    const isSelected = formData.selectedSlot?.startTime === slot.startTime;
+                    
+                    return (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => isAvailable ? handleSlotSelect(slot) : null}
+                        disabled={isLoading || !isAvailable}
+                        className={`px-3 py-3 text-sm font-medium border rounded-lg transition-all duration-200 relative group ${
+                          isSelected && isAvailable
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-md transform scale-105'
+                            : isAvailable
+                            ? 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300 hover:shadow-sm'
+                            : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
+                        }`}
+                        title={!isAvailable ? (slot.reason === 'BOOKED' ? 'This time slot is already booked' : 'This time slot is not available') : `Click to select ${slot.label}`}
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="text-sm font-semibold">{slot.label}</span>
+                          <span className="text-xs opacity-75 mt-1">
+                            {isAvailable ? 'Available' : 'Booked'}
+                          </span>
+                        </div>
+                        {!isAvailable && (
+                          <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></div>
+                        )}
+                        {isSelected && (
+                          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+                        )}
+                      </button>
+                    );
+                  })
                 ) : (
-                  <div className="col-span-full text-center py-4 text-gray-500">
-                    No available time slots for this date
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    <div className="flex flex-col items-center">
+                      <svg className="w-12 h-12 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="font-medium">No time slots available</p>
+                      <p className="text-sm text-gray-400 mt-1">Try selecting a different date</p>
+                    </div>
                   </div>
                 )}
               </div>

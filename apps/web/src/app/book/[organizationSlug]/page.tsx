@@ -135,9 +135,13 @@ export default function UnifiedBookingPage() {
 
   const handleMeetingTypeSelect = (meetingType: MeetingType) => {
     setSelectedMeetingType(meetingType);
+    // Clear previous slots and form data when selecting a new meeting type
+    setAvailableSlots([]);
     setFormData(prev => ({
       ...prev,
       title: `${meetingType.name} with ${meetingType.host.firstName} ${meetingType.host.lastName}`,
+      selectedDate: '',
+      selectedSlot: null,
     }));
     setStep('book-meeting');
   };
@@ -317,7 +321,19 @@ export default function UnifiedBookingPage() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={() => setStep('select-meeting-type')}
+                onClick={() => {
+                  // Clear slots and selected meeting type when going back
+                  setAvailableSlots([]);
+                  setSelectedMeetingType(null);
+                  setFormData(prev => ({
+                    ...prev,
+                    selectedDate: '',
+                    selectedSlot: null,
+                    title: '',
+                    description: '',
+                  }));
+                  setStep('select-meeting-type');
+                }}
                 className="mr-4"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />

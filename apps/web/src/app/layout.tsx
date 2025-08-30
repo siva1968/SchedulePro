@@ -11,11 +11,12 @@ export const metadata: Metadata = {
   description: 'Transform your scheduling process with AI-powered booking management',
   keywords: ['scheduling', 'appointments', 'booking', 'calendar', 'meetings'],
   authors: [{ name: 'SchedulePro Team' }],
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-  },
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({

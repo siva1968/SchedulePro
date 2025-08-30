@@ -820,141 +820,144 @@ export class EmailService {
     const attendeeTimezone = booking.attendees[0]?.timezone || booking.timezone || 'UTC';
     const hostTimezone = booking.host.timezone || 'UTC';
 
-    // Email to attendee (if rescheduled by host)
-    if (rescheduledBy === 'host') {
-      const oldTimeFormatted = this.formatDateWithTimezone(oldStartTime, attendeeTimezone);
-      const oldEndTimeFormatted = this.formatDateWithTimezone(oldEndTime, attendeeTimezone);
-      const newTimeFormatted = this.formatDateWithTimezone(newStartTime, attendeeTimezone);
-      const newEndTimeFormatted = this.formatDateWithTimezone(newEndTime, attendeeTimezone);
-      
-      const oldTimeRange = `${oldStartTime.toLocaleTimeString('en-US', { 
-        timeZone: attendeeTimezone,
-        hour: 'numeric', 
-        minute: '2-digit' 
-      })} - ${oldEndTime.toLocaleTimeString('en-US', { 
-        timeZone: attendeeTimezone,
-        hour: 'numeric', 
-        minute: '2-digit' 
-      })}`;
-      
-      const newTimeRange = `${newStartTime.toLocaleTimeString('en-US', { 
-        timeZone: attendeeTimezone,
-        hour: 'numeric', 
-        minute: '2-digit' 
-      })} - ${newEndTime.toLocaleTimeString('en-US', { 
-        timeZone: attendeeTimezone,
-        hour: 'numeric', 
-        minute: '2-digit' 
-      })}`;
+    // Always send email to attendee (confirmation of reschedule)
+    const oldTimeFormattedAttendee = this.formatDateWithTimezone(oldStartTime, attendeeTimezone);
+    const oldEndTimeFormattedAttendee = this.formatDateWithTimezone(oldEndTime, attendeeTimezone);
+    const newTimeFormattedAttendee = this.formatDateWithTimezone(newStartTime, attendeeTimezone);
+    const newEndTimeFormattedAttendee = this.formatDateWithTimezone(newEndTime, attendeeTimezone);
+    
+    const oldTimeRangeAttendee = `${oldStartTime.toLocaleTimeString('en-US', { 
+      timeZone: attendeeTimezone,
+      hour: 'numeric', 
+      minute: '2-digit' 
+    })} - ${oldEndTime.toLocaleTimeString('en-US', { 
+      timeZone: attendeeTimezone,
+      hour: 'numeric', 
+      minute: '2-digit' 
+    })}`;
+    
+    const newTimeRangeAttendee = `${newStartTime.toLocaleTimeString('en-US', { 
+      timeZone: attendeeTimezone,
+      hour: 'numeric', 
+      minute: '2-digit' 
+    })} - ${newEndTime.toLocaleTimeString('en-US', { 
+      timeZone: attendeeTimezone,
+      hour: 'numeric', 
+      minute: '2-digit' 
+    })}`;
 
-      const attendeeHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <title>Booking Rescheduled - SchedulePro</title>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-            .container { max-width: 600px; margin: 0 auto; padding: 0; }
-            .header { background-color: #3b82f6; color: white; padding: 30px 20px; text-align: center; }
-            .content { padding: 30px 20px; background-color: #ffffff; }
-            .time-change { background-color: #eff6ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6; }
-            .timezone-info { background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #6b7280; }
-            .action-buttons { text-align: center; margin: 30px 0; }
-            .button { display: inline-block; padding: 12px 24px; margin: 0 10px; text-decoration: none; border-radius: 6px; font-weight: bold; }
-            .btn-primary { background-color: #3b82f6; color: white; }
-            .btn-danger { background-color: #ef4444; color: white; }
-            .footer { text-align: center; padding: 20px; background-color: #f3f4f6; color: #666; font-size: 14px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>📅 SchedulePro</h1>
-              <h2>Booking Rescheduled</h2>
-            </div>
-            <div class="content">
-              <p>Hello ${booking.attendees[0]?.name || 'there'},</p>
-              <p>Your booking has been rescheduled by ${booking.host.firstName} ${booking.host.lastName}.</p>
-              
-              <div class="time-change">
-                <h3>📅 Time Change:</h3>
-                <p><strong>Previous Time:</strong><br>
-                   ${oldTimeFormatted.formattedDate} at ${oldTimeRange}</p>
-                <p><strong>New Time:</strong><br>
-                   ${newTimeFormatted.formattedDate} at ${newTimeRange}</p>
-                <p><strong>Meeting:</strong> ${booking.meetingType.name}</p>
-                <p><strong>Duration:</strong> ${booking.meetingType.duration} minutes</p>
-              </div>
+    const attendeeEmailTitle = rescheduledBy === 'host' ? 'Booking Rescheduled by Host' : 'Booking Rescheduled Successfully';
+    const attendeeEmailMessage = rescheduledBy === 'host' 
+      ? `Your booking has been rescheduled by ${booking.host.firstName} ${booking.host.lastName}.`
+      : `Your booking has been successfully rescheduled.`;
 
-              <div class="timezone-info">
-                <h4 style="margin-top: 0; color: #374151;">🌍 New Time Details:</h4>
-                <p style="margin: 5px 0;"><strong>Your Local Time:</strong> ${newTimeFormatted.formattedTime} - ${newEndTimeFormatted.formattedTime}</p>
-                <p style="margin: 5px 0;"><strong>Your Timezone:</strong> ${newTimeFormatted.timezoneName}</p>
-                <p style="margin: 5px 0; font-size: 12px; color: #6b7280;"><strong>UTC Reference:</strong> ${newTimeFormatted.utcTime} - ${newEndTimeFormatted.utcTime}</p>
-              </div>
-
-              <div class="action-buttons">
-                <a href="${rescheduleUrl}" class="button btn-primary">📅 Reschedule Again</a>
-                <a href="${cancelUrl}" class="button btn-danger">❌ Cancel Booking</a>
-              </div>
-
-              <p>If you have any questions about this change, please contact ${booking.host.firstName} at ${booking.host.email}.</p>
-            </div>
-            <div class="footer">
-              <p>This email was sent by SchedulePro</p>
-            </div>
+    const attendeeHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Booking Rescheduled - SchedulePro</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 0 auto; padding: 0; }
+          .header { background-color: #3b82f6; color: white; padding: 30px 20px; text-align: center; }
+          .content { padding: 30px 20px; background-color: #ffffff; }
+          .time-change { background-color: #eff6ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6; }
+          .timezone-info { background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #6b7280; }
+          .action-buttons { text-align: center; margin: 30px 0; }
+          .button { display: inline-block; padding: 12px 24px; margin: 0 10px; text-decoration: none; border-radius: 6px; font-weight: bold; }
+          .btn-primary { background-color: #3b82f6; color: white; }
+          .btn-danger { background-color: #ef4444; color: white; }
+          .footer { text-align: center; padding: 20px; background-color: #f3f4f6; color: #666; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📅 SchedulePro</h1>
+            <h2>${attendeeEmailTitle}</h2>
           </div>
-        </body>
-        </html>
-      `;
+          <div class="content">
+            <p>Hello ${booking.attendees[0]?.name || 'there'},</p>
+            <p>${attendeeEmailMessage}</p>
+            
+            <div class="time-change">
+              <h3>📅 Time Change:</h3>
+              <p><strong>Previous Time:</strong><br>
+                 ${oldTimeFormattedAttendee.formattedDate} at ${oldTimeRangeAttendee}</p>
+              <p><strong>New Time:</strong><br>
+                 ${newTimeFormattedAttendee.formattedDate} at ${newTimeRangeAttendee}</p>
+              <p><strong>Meeting:</strong> ${booking.meetingType.name}</p>
+              <p><strong>Duration:</strong> ${booking.meetingType.duration} minutes</p>
+            </div>
 
-      const attendeeTextContent = `
-        SchedulePro - Booking Rescheduled
-        
-        Hello ${booking.attendees[0]?.name || 'there'},
-        
-        Your booking has been rescheduled by ${booking.host.firstName} ${booking.host.lastName}.
-        
-        TIME CHANGE:
-        Previous Time: ${oldTimeFormatted.formattedDate} at ${oldTimeRange}
-        New Time: ${newTimeFormatted.formattedDate} at ${newTimeRange}
-        Meeting: ${booking.meetingType.name}
-        Duration: ${booking.meetingType.duration} minutes
-        
-        NEW TIME DETAILS:
-        Your Local Time: ${newTimeFormatted.formattedTime} - ${newEndTimeFormatted.formattedTime}
-        Your Timezone: ${newTimeFormatted.timezoneName}
-        UTC Reference: ${newTimeFormatted.utcTime} - ${newEndTimeFormatted.utcTime}
-        
-        Actions:
-        Reschedule Again: ${rescheduleUrl}
-        Cancel Booking: ${cancelUrl}
-        
-        If you have any questions about this change, please contact ${booking.host.firstName} at ${booking.host.email}.
-        
-        Thank you,
-        The SchedulePro Team
-      `;
+            <div class="timezone-info">
+              <h4 style="margin-top: 0; color: #374151;">🌍 New Time Details:</h4>
+              <p style="margin: 5px 0;"><strong>Your Local Time:</strong> ${newTimeFormattedAttendee.formattedTime} - ${newEndTimeFormattedAttendee.formattedTime}</p>
+              <p style="margin: 5px 0;"><strong>Your Timezone:</strong> ${newTimeFormattedAttendee.timezoneName}</p>
+              <p style="margin: 5px 0; font-size: 12px; color: #6b7280;"><strong>UTC Reference:</strong> ${newTimeFormattedAttendee.utcTime} - ${newEndTimeFormattedAttendee.utcTime}</p>
+            </div>
 
-      results.push(await this.sendEmail({
-        to: booking.attendees[0]?.email,
-        subject: `Booking Rescheduled: ${booking.meetingType.name} - New Time`,
-        text: attendeeTextContent,
-        html: attendeeHtml,
-      }));
-    }
+            <div class="action-buttons">
+              <a href="${rescheduleUrl}" class="button btn-primary">📅 Reschedule Again</a>
+              <a href="${cancelUrl}" class="button btn-danger">❌ Cancel Booking</a>
+            </div>
 
-    // Email to host (if rescheduled by attendee)
+            <p>If you have any questions about this change, please contact ${booking.host.firstName} at ${booking.host.email}.</p>
+          </div>
+          <div class="footer">
+            <p>This email was sent by SchedulePro</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const attendeeTextContent = `
+      SchedulePro - ${attendeeEmailTitle}
+      
+      Hello ${booking.attendees[0]?.name || 'there'},
+      
+      ${attendeeEmailMessage}
+      
+      TIME CHANGE:
+      Previous Time: ${oldTimeFormattedAttendee.formattedDate} at ${oldTimeRangeAttendee}
+      New Time: ${newTimeFormattedAttendee.formattedDate} at ${newTimeRangeAttendee}
+      Meeting: ${booking.meetingType.name}
+      Duration: ${booking.meetingType.duration} minutes
+      
+      NEW TIME DETAILS:
+      Your Local Time: ${newTimeFormattedAttendee.formattedTime} - ${newEndTimeFormattedAttendee.formattedTime}
+      Your Timezone: ${newTimeFormattedAttendee.timezoneName}
+      UTC Reference: ${newTimeFormattedAttendee.utcTime} - ${newEndTimeFormattedAttendee.utcTime}
+      
+      Actions:
+      Reschedule Again: ${rescheduleUrl}
+      Cancel Booking: ${cancelUrl}
+      
+      If you have any questions about this change, please contact ${booking.host.firstName} at ${booking.host.email}.
+      
+      Thank you,
+      The SchedulePro Team
+    `;
+
+    results.push(await this.sendEmail({
+      to: booking.attendees[0]?.email,
+      subject: `Booking Rescheduled: ${booking.meetingType.name} - New Time`,
+      text: attendeeTextContent,
+      html: attendeeHtml,
+    }));
+
+    // Email to host (notification of reschedule)
     if (rescheduledBy === 'attendee') {
       const manageUrl = `${frontendUrl}/dashboard/bookings/${booking.id}`;
       
-      const oldTimeFormatted = this.formatDateWithTimezone(oldStartTime, hostTimezone);
-      const oldEndTimeFormatted = this.formatDateWithTimezone(oldEndTime, hostTimezone);
-      const newTimeFormatted = this.formatDateWithTimezone(newStartTime, hostTimezone);
-      const newEndTimeFormatted = this.formatDateWithTimezone(newEndTime, hostTimezone);
+      const oldTimeFormattedHost = this.formatDateWithTimezone(oldStartTime, hostTimezone);
+      const oldEndTimeFormattedHost = this.formatDateWithTimezone(oldEndTime, hostTimezone);
+      const newTimeFormattedHost = this.formatDateWithTimezone(newStartTime, hostTimezone);
+      const newEndTimeFormattedHost = this.formatDateWithTimezone(newEndTime, hostTimezone);
       
-      const oldTimeRange = `${oldStartTime.toLocaleTimeString('en-US', { 
+      const oldTimeRangeHost = `${oldStartTime.toLocaleTimeString('en-US', { 
         timeZone: hostTimezone,
         hour: 'numeric', 
         minute: '2-digit' 
@@ -964,7 +967,7 @@ export class EmailService {
         minute: '2-digit' 
       })}`;
       
-      const newTimeRange = `${newStartTime.toLocaleTimeString('en-US', { 
+      const newTimeRangeHost = `${newStartTime.toLocaleTimeString('en-US', { 
         timeZone: hostTimezone,
         hour: 'numeric', 
         minute: '2-digit' 
@@ -1005,18 +1008,18 @@ export class EmailService {
               <div class="time-change">
                 <h3>📅 Time Change:</h3>
                 <p><strong>Previous Time:</strong><br>
-                   ${oldTimeFormatted.formattedDate} at ${oldTimeRange}</p>
+                   ${oldTimeFormattedHost.formattedDate} at ${oldTimeRangeHost}</p>
                 <p><strong>New Time:</strong><br>
-                   ${newTimeFormatted.formattedDate} at ${newTimeRange}</p>
+                   ${newTimeFormattedHost.formattedDate} at ${newTimeRangeHost}</p>
                 <p><strong>Meeting:</strong> ${booking.meetingType.name}</p>
                 <p><strong>Attendee:</strong> ${booking.attendees[0]?.name} (${booking.attendees[0]?.email})</p>
               </div>
 
               <div class="timezone-info">
                 <h4 style="margin-top: 0; color: #374151;">🌍 New Time Details:</h4>
-                <p style="margin: 5px 0;"><strong>Your Local Time:</strong> ${newTimeFormatted.formattedTime} - ${newEndTimeFormatted.formattedTime}</p>
-                <p style="margin: 5px 0;"><strong>Your Timezone:</strong> ${newTimeFormatted.timezoneName}</p>
-                <p style="margin: 5px 0; font-size: 12px; color: #6b7280;"><strong>UTC Reference:</strong> ${newTimeFormatted.utcTime} - ${newEndTimeFormatted.utcTime}</p>
+                <p style="margin: 5px 0;"><strong>Your Local Time:</strong> ${newTimeFormattedHost.formattedTime} - ${newEndTimeFormattedHost.formattedTime}</p>
+                <p style="margin: 5px 0;"><strong>Your Timezone:</strong> ${newTimeFormattedHost.timezoneName}</p>
+                <p style="margin: 5px 0; font-size: 12px; color: #6b7280;"><strong>UTC Reference:</strong> ${newTimeFormattedHost.utcTime} - ${newEndTimeFormattedHost.utcTime}</p>
               </div>
 
               <div class="action-buttons">
@@ -1041,15 +1044,15 @@ export class EmailService {
         A booking has been rescheduled by ${booking.attendees[0]?.name}.
         
         TIME CHANGE:
-        Previous Time: ${oldTimeFormatted.formattedDate} at ${oldTimeRange}
-        New Time: ${newTimeFormatted.formattedDate} at ${newTimeRange}
+        Previous Time: ${oldTimeFormattedHost.formattedDate} at ${oldTimeRangeHost}
+        New Time: ${newTimeFormattedHost.formattedDate} at ${newTimeRangeHost}
         Meeting: ${booking.meetingType.name}
         Attendee: ${booking.attendees[0]?.name} (${booking.attendees[0]?.email})
         
         NEW TIME DETAILS:
-        Your Local Time: ${newTimeFormatted.formattedTime} - ${newEndTimeFormatted.formattedTime}
-        Your Timezone: ${newTimeFormatted.timezoneName}
-        UTC Reference: ${newTimeFormatted.utcTime} - ${newEndTimeFormatted.utcTime}
+        Your Local Time: ${newTimeFormattedHost.formattedTime} - ${newEndTimeFormattedHost.formattedTime}
+        Your Timezone: ${newTimeFormattedHost.timezoneName}
+        UTC Reference: ${newTimeFormattedHost.utcTime} - ${newEndTimeFormattedHost.utcTime}
         
         Manage this booking: ${manageUrl}
         

@@ -3,12 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useBookingStore } from '@/stores/booking-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { useUserTimezone } from '@/hooks/useUserTimezone';
-import { formatDateTimeInUserTimezone, getTimeRangeInUserTimezone } from '@/lib/timezone';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import DashboardPageHeader from '@/components/DashboardPageHeader';
 import DashboardPageContainer from '@/components/DashboardPageContainer';
@@ -30,8 +27,6 @@ export default function PendingBookingsPage() {
   const [decliningBookings, setDecliningBookings] = useState<Set<string>>(new Set());
   const [declineReason, setDeclineReason] = useState<string>('');
   const [selectedBookingForDecline, setSelectedBookingForDecline] = useState<string | null>(null);
-
-  const userTimezone = useUserTimezone();
 
   useEffect(() => {
     // Only fetch data when user is authenticated and user data is loaded
@@ -85,18 +80,6 @@ export default function PendingBookingsPage() {
     }
   };
 
-  const formatBookingTime = (startTime: string, endTime: string) => {
-    if (!userTimezone) return '';
-    return getTimeRangeInUserTimezone(startTime, endTime, userTimezone);
-  };
-
-  const formatBookingDate = (startTime: string) => {
-    if (!userTimezone) return '';
-    return formatDateTimeInUserTimezone(startTime, userTimezone, {
-      dateStyle: 'full',
-    });
-  };
-
   if (isLoading && pendingBookings.length === 0) {
     return (
       <DashboardPageContainer>
@@ -146,138 +129,169 @@ export default function PendingBookingsPage() {
           </div>
         </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="max-w-4xl mx-auto space-y-6">
           {pendingBookings.map((booking) => (
-            <Card key={booking.id} className="p-6 border-l-4 border-l-yellow-400">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-3 mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {booking.meetingType.name}
-                    </h3>
-                    <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                      <Clock className="h-3 w-3 mr-1" />
-                      Pending Approval
-                    </Badge>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Calendar className="h-4 w-4 mr-2" />
-                        <span className="font-medium">Date:</span>
-                        <span className="ml-1">{formatBookingDate(booking.startTime)}</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Clock className="h-4 w-4 mr-2" />
-                        <span className="font-medium">Time:</span>
-                        <span className="ml-1">{formatBookingTime(booking.startTime, booking.endTime)}</span>
+            <Card key={booking.id} className="p-6">
+              <div className="space-y-6">
+                {/* Status Badge */}
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Booking Request</h2>
+                  <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                    Pending Approval
+                  </Badge>
+                </div>
+
+                {/* Booking Details */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <User className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="font-medium">{booking.attendees[0]?.name || 'Unknown'}</p>
+                        <p className="text-sm text-gray-600">Attendee</p>
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      {booking.attendees.map((attendee, index) => (
-                        <div key={index} className="space-y-1">
-                          <div className="flex items-center text-sm text-gray-600">
-                            <User className="h-4 w-4 mr-2" />
-                            <span className="font-medium">Name:</span>
-                            <span className="ml-1">{attendee.name}</span>
-                          </div>
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Mail className="h-4 w-4 mr-2" />
-                            <span className="font-medium">Email:</span>
-                            <span className="ml-1">{attendee.email}</span>
-                          </div>
-                          {attendee.phoneNumber && (
-                            <div className="flex items-center text-sm text-gray-600">
-                              <Phone className="h-4 w-4 mr-2" />
-                              <span className="font-medium">Phone:</span>
-                              <span className="ml-1">{attendee.phoneNumber}</span>
-                            </div>
-                          )}
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="font-medium">{booking.attendees[0]?.email || 'No email'}</p>
+                        <p className="text-sm text-gray-600">Email</p>
+                      </div>
+                    </div>
+
+                    {booking.attendees[0]?.phoneNumber && (
+                      <div className="flex items-center gap-3">
+                        <Phone className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <p className="font-medium">{booking.attendees[0].phoneNumber}</p>
+                          <p className="text-sm text-gray-600">Phone</p>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
                   </div>
 
-                  {booking.description && (
-                    <div className="mb-4">
-                      <span className="text-sm font-medium text-gray-600">Description:</span>
-                      <p className="text-sm text-gray-700 mt-1">{booking.description}</p>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Calendar className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="font-medium">
+                          {new Date(booking.startTime).toLocaleDateString()}
+                        </p>
+                        <p className="text-sm text-gray-600">Date</p>
+                      </div>
                     </div>
-                  )}
 
-                  {booking.notes && (
-                    <div className="mb-4">
-                      <span className="text-sm font-medium text-gray-600">Notes:</span>
-                      <p className="text-sm text-gray-700 mt-1">{booking.notes}</p>
+                    <div className="flex items-center gap-3">
+                      <Clock className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="font-medium">
+                          {new Date(booking.startTime).toLocaleTimeString()} - {new Date(booking.endTime).toLocaleTimeString()}
+                        </p>
+                        <p className="text-sm text-gray-600">Time</p>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
 
-              {/* Decline Reason Input */}
-              {selectedBookingForDecline === booking.id && (
-                <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Reason for declining (optional):
-                  </label>
-                  <Textarea
-                    value={declineReason}
-                    onChange={(e) => setDeclineReason(e.target.value)}
-                    placeholder="e.g., I have a conflict at that time. Please book another slot."
-                    rows={3}
-                    className="w-full"
-                  />
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  onClick={() => handleApproveBooking(booking.id)}
-                  disabled={approvingBookings.has(booking.id)}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  {approvingBookings.has(booking.id) ? 'Approving...' : 'Approve'}
-                </Button>
-
-                {selectedBookingForDecline === booking.id ? (
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => handleDeclineBooking(booking.id)}
-                      disabled={decliningBookings.has(booking.id)}
-                      variant="destructive"
-                    >
-                      {decliningBookings.has(booking.id) ? 'Declining...' : 'Confirm Decline'}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setSelectedBookingForDecline(null);
-                        setDeclineReason('');
-                      }}
-                      variant="outline"
-                    >
-                      Cancel
-                    </Button>
+                    <div className="flex items-center gap-3">
+                      <div className="h-5 w-5 bg-blue-100 rounded-full flex items-center justify-center">
+                        <div className="h-2 w-2 bg-blue-600 rounded-full"></div>
+                      </div>
+                      <div>
+                        <p className="font-medium">{booking.meetingType?.name}</p>
+                        <p className="text-sm text-gray-600">Meeting Type</p>
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  <Button
-                    onClick={() => setSelectedBookingForDecline(booking.id)}
-                    variant="outline"
-                    className="border-red-300 text-red-600 hover:bg-red-50"
-                  >
-                    <XCircle className="h-4 w-4 mr-2" />
-                    Decline
-                  </Button>
+                </div>
+
+                {/* Notes */}
+                {booking.notes && (
+                  <div className="border-t pt-4">
+                    <h3 className="font-medium mb-2">Additional Notes</h3>
+                    <p className="text-gray-700 bg-gray-50 p-3 rounded-lg">{booking.notes}</p>
+                  </div>
                 )}
-              </div>
 
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <p className="text-xs text-gray-500">
-                  Requested on {formatDateTimeInUserTimezone(booking.createdAt, userTimezone || 'UTC')}
-                </p>
+                {/* Description */}
+                {booking.description && (
+                  <div className="border-t pt-4">
+                    <h3 className="font-medium mb-2">Description</h3>
+                    <p className="text-gray-700 bg-gray-50 p-3 rounded-lg">{booking.description}</p>
+                  </div>
+                )}
+
+                {/* Decline Reason Input */}
+                {selectedBookingForDecline === booking.id && (
+                  <div className="border-t pt-4">
+                    <div className="space-y-4">
+                      <div>
+                        <label htmlFor={`declineReason-${booking.id}`} className="block text-sm font-medium text-gray-700 mb-2">
+                          Reason for declining *
+                        </label>
+                        <Textarea
+                          id={`declineReason-${booking.id}`}
+                          value={declineReason}
+                          onChange={(e) => setDeclineReason(e.target.value)}
+                          placeholder="Please provide a reason for declining this booking..."
+                          rows={4}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="border-t pt-6">
+                  {selectedBookingForDecline === booking.id ? (
+                    <div className="flex gap-3">
+                      <Button
+                        onClick={() => {
+                          setSelectedBookingForDecline(null);
+                          setDeclineReason('');
+                        }}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={() => handleDeclineBooking(booking.id)}
+                        disabled={decliningBookings.has(booking.id) || !declineReason.trim()}
+                        variant="destructive"
+                        className="flex-1"
+                      >
+                        {decliningBookings.has(booking.id) ? 'Declining...' : 'Confirm Decline'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-3">
+                      <Button
+                        onClick={() => handleApproveBooking(booking.id)}
+                        disabled={approvingBookings.has(booking.id)}
+                        className="flex-1 bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        {approvingBookings.has(booking.id) ? 'Approving...' : 'Approve Booking'}
+                      </Button>
+                      <Button
+                        onClick={() => setSelectedBookingForDecline(booking.id)}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Decline
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Timestamp */}
+                <div className="border-t pt-4">
+                  <p className="text-sm text-gray-500">
+                    Requested on {new Date(booking.createdAt).toLocaleString()}
+                  </p>
+                </div>
               </div>
             </Card>
           ))}

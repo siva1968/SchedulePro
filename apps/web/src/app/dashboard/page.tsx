@@ -24,7 +24,7 @@ interface User {
 
 interface DashboardStats {
   totalAppointments: number;
-  confirmedToday: number;
+  scheduledToday: number;
   pendingBookings: number;
 }
 
@@ -45,7 +45,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     totalAppointments: 0,
-    confirmedToday: 0,
+    scheduledToday: 0,
     pendingBookings: 0,
   });
   const [recentBookings, setRecentBookings] = useState<RecentBooking[]>([]);
@@ -86,8 +86,8 @@ export default function DashboardPage() {
 
     const loadDashboardStats = async (token: string) => {
       try {
-        // Fetch all bookings from the backend API
-        const bookingsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/bookings`, {
+        // Fetch all bookings from the backend API (set high limit to get all bookings)
+        const bookingsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/bookings?limit=1000`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -99,8 +99,8 @@ export default function DashboardPage() {
 
           // Calculate statistics
           const today = new Date().toDateString();
-          const totalAppointments = bookings.length;
-          const confirmedToday = bookings.filter((booking: any) => 
+          const totalAppointments = bookingsData.total || bookings.length; // Use total from API response
+          const scheduledToday = bookings.filter((booking: any) => 
             booking.status === 'CONFIRMED' && 
             new Date(booking.startTime).toDateString() === today
           ).length;
@@ -110,7 +110,7 @@ export default function DashboardPage() {
 
           setStats({
             totalAppointments,
-            confirmedToday,
+            scheduledToday,
             pendingBookings,
           });
 
@@ -203,10 +203,10 @@ export default function DashboardPage() {
                   <div className="ml-5 w-0 flex-1">
                     <dl>
                       <dt className="text-sm font-medium text-gray-500 truncate">
-                        Confirmed Today
+                        Scheduled for Today
                       </dt>
                       <dd className="text-lg font-medium text-gray-900">
-                        {stats.confirmedToday}
+                        {stats.scheduledToday}
                       </dd>
                     </dl>
                   </div>

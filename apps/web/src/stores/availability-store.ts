@@ -18,6 +18,9 @@ interface AvailabilitySlot {
 interface TimeSlot {
   startTime: string;
   endTime: string;
+  label?: string;
+  available?: boolean;
+  reason?: string | null;
 }
 
 interface AvailabilityState {
