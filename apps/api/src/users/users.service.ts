@@ -59,9 +59,23 @@ export class UsersService {
         lastName: true,
         timezone: true,
         profileImageUrl: true,
+        systemRole: true,
         isActive: true,
+        isEmailVerified: true,
+        lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
+        organizations: {
+          include: {
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+              },
+            },
+          },
+        },
       },
     });
   }
@@ -280,6 +294,98 @@ export class UsersService {
       },
       availability: user.availabilities,
       bookings: user.hostedBookings,
+    };
+  }
+
+  async updateUserRole(id: string, systemRole: 'USER' | 'ADMIN' | 'SUPER_ADMIN') {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id },
+      data: { systemRole },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        systemRole: true,
+        isActive: true,
+        isEmailVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+        organizations: {
+          include: {
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      ...updatedUser,
+      organizations: updatedUser.organizations.map((org) => ({
+        id: org.organization.id,
+        name: org.organization.name,
+        role: org.role,
+      })),
+    };
+  }
+
+  async updateUserStatus(id: string, isActive: boolean) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id },
+      data: { isActive },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        systemRole: true,
+        isActive: true,
+        isEmailVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+        organizations: {
+          include: {
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      ...updatedUser,
+      organizations: updatedUser.organizations.map((org) => ({
+        id: org.organization.id,
+        name: org.organization.name,
+        role: org.role,
+      })),
     };
   }
 }

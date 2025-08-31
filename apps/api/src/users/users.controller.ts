@@ -14,6 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, ChangePasswordDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards';
+import { SystemAdminGuard } from '../auth/guards/system-admin.guard';
 
 @ApiTags('Users')
 @Controller('users')
@@ -152,6 +153,51 @@ export class UsersController {
   })
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.remove(id);
+  }
+
+  // Admin-only endpoints
+  @Patch(':id/role')
+  @UseGuards(SystemAdminGuard)
+  @ApiOperation({ summary: 'Update user system role (Admin only)' })
+  @ApiResponse({
+    status: 200,
+    description: 'User role successfully updated',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin privileges required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  updateUserRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { systemRole: 'USER' | 'ADMIN' | 'SUPER_ADMIN' },
+  ) {
+    return this.usersService.updateUserRole(id, body.systemRole);
+  }
+
+  @Patch(':id/status')
+  @UseGuards(SystemAdminGuard)
+  @ApiOperation({ summary: 'Update user active status (Admin only)' })
+  @ApiResponse({
+    status: 200,
+    description: 'User status successfully updated',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin privileges required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  updateUserStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { isActive: boolean },
+  ) {
+    return this.usersService.updateUserStatus(id, body.isActive);
   }
 
   @Delete(':id/hard')

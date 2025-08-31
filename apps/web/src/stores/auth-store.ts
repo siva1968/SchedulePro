@@ -9,6 +9,7 @@ interface User {
   timezone?: string;
   phoneNumber?: string;
   profileImageUrl?: string;
+  systemRole: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
   organizations: Array<{
     id: string;
     name: string;

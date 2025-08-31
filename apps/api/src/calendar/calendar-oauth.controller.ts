@@ -316,12 +316,24 @@ export class CalendarOAuthController {
     }
 
     try {
-      // Decode state parameter
-      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      console.log('Outlook OAuth callback received:', { code: !!code, state: !!state });
+      
+      // Decode state parameter for logging and validation
+      let decodedState;
+      try {
+        decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+        console.log('Decoded state in controller:', decodedState);
+      } catch (parseError) {
+        console.error('Failed to decode state in controller:', parseError);
+        return {
+          url: `${frontendUrl}/dashboard/calendar?error=invalid_state`,
+        };
+      }
+      
       const { userId, integrationName } = decodedState;
 
-      // Use Microsoft OAuth service to handle the callback
-      const result = await this.microsoftOAuthService.handleCallback(code, userId);
+      // Use Microsoft OAuth service to handle the callback with correct parameters
+      const result = await this.microsoftOAuthService.handleCallback(code, state);
       
       if (!result.success || !result.integration) {
         throw new Error('Failed to create integration');

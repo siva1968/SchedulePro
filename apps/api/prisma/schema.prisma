@@ -26,6 +26,11 @@ model User {
   phoneNumber      String?   @map("phone_number")
   profileImageUrl  String?   @map("profile_image_url")
   
+  // OAuth/SSO fields
+  azureId          String?   @unique @map("azure_id") // Azure AD user ID
+  googleId         String?   @unique @map("google_id") // Google OAuth user ID
+  refreshToken     String?   @map("refresh_token") // For token refresh
+  
   // System role for global admin access
   systemRole       SystemRole @default(USER) @map("system_role")
   
@@ -51,6 +56,7 @@ model User {
   passwordResets    PasswordReset[]
   createdEmailSettings EmailSettings[] @relation("EmailSettingsCreator")
   updatedEmailSettings EmailSettings[] @relation("EmailSettingsUpdater")
+  updatedSystemSettings SystemSettings[] @relation("SystemSettingsUpdater")
 
   @@map("users")
   @@index([email])
@@ -394,6 +400,30 @@ model EmailSettings {
   @@map("email_settings")
   @@index([provider])
   @@index([isActive])
+}
+
+// ============================================================================
+// SYSTEM SETTINGS (SUPER ADMIN ONLY)
+// ============================================================================
+
+model SystemSettings {
+  id                       String    @id @default(uuid())
+  settingKey               String    @unique @map("setting_key") // e.g., "registration_enabled", "user_invite_only"
+  settingValue             String    @map("setting_value") // JSON string value
+  description              String?   // Human readable description
+  category                 String    @default("general") // Category for grouping settings
+  
+  // Metadata
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  updatedBy                String    @map("updated_by")
+  
+  // Relations
+  updater                  User      @relation("SystemSettingsUpdater", fields: [updatedBy], references: [id])
+
+  @@map("system_settings")
+  @@index([category])
+  @@index([settingKey])
 }
 
 // ============================================================================

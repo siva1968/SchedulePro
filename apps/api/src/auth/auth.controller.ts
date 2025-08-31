@@ -1,9 +1,10 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards, Get, Request, UnauthorizedException, Patch } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards, Get, Request, UnauthorizedException, Patch, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto, RefreshTokenDto, UpdateProfileDto } from './dto';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
-import { JwtAuthGuard } from './guards';
+import { JwtAuthGuard, AzureADAuthGuard, GoogleOAuthGuard } from './guards';
+import { Response } from 'express';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -297,5 +298,109 @@ export class AuthController {
     return { 
       message: 'Password has been successfully reset.' 
     };
+  }
+
+  @Get('azure')
+  @UseGuards(AzureADAuthGuard)
+  @ApiOperation({ summary: 'Initiate Azure AD authentication' })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirects to Azure AD login page',
+  })
+  async azureAuth() {
+    // This method is handled by the AzureADAuthGuard
+    // The actual redirect is handled by Passport
+  }
+
+  @Get('azure/callback')
+  @UseGuards(AzureADAuthGuard)
+  @ApiOperation({ summary: 'Handle Azure AD authentication callback' })
+  @ApiResponse({
+    status: 200,
+    description: 'Successful Azure AD authentication',
+    schema: {
+      type: 'object',
+      properties: {
+        access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
+        user: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            email: { type: 'string' },
+            firstName: { type: 'string' },
+            lastName: { type: 'string' },
+            provider: { type: 'string' },
+          },
+        },
+      },
+    },
+  })
+  async azureAuthCallback(@Request() req: any, @Res() res: Response) {
+    try {
+      // Process the Azure AD user and create/login the user
+      const authResult = await this.authService.azureAuth(req.user);
+      
+      // Redirect to frontend with tokens
+      const redirectUrl = `${process.env.FRONTEND_URL}/auth/callback?access_token=${authResult.access_token}&refresh_token=${authResult.refresh_token}`;
+      
+      return res.redirect(redirectUrl);
+    } catch (error) {
+      // Redirect to frontend with error
+      const errorUrl = `${process.env.FRONTEND_URL}/auth/error?message=${encodeURIComponent(error.message)}`;
+      return res.redirect(errorUrl);
+    }
+  }
+
+  @Get('google')
+  @UseGuards(GoogleOAuthGuard)
+  @ApiOperation({ summary: 'Initiate Google OAuth authentication' })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirects to Google OAuth login page',
+  })
+  async googleAuth() {
+    // This method is handled by the GoogleOAuthGuard
+    // The actual redirect is handled by Passport
+  }
+
+  @Get('google/callback')
+  @UseGuards(GoogleOAuthGuard)
+  @ApiOperation({ summary: 'Handle Google OAuth authentication callback' })
+  @ApiResponse({
+    status: 200,
+    description: 'Successful Google OAuth authentication',
+    schema: {
+      type: 'object',
+      properties: {
+        access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
+        user: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            email: { type: 'string' },
+            firstName: { type: 'string' },
+            lastName: { type: 'string' },
+            provider: { type: 'string' },
+          },
+        },
+      },
+    },
+  })
+  async googleAuthCallback(@Request() req: any, @Res() res: Response) {
+    try {
+      // Process the Google user and create/login the user
+      const authResult = await this.authService.googleAuth(req.user);
+      
+      // Redirect to frontend with tokens
+      const redirectUrl = `${process.env.FRONTEND_URL}/auth/callback?access_token=${authResult.access_token}&refresh_token=${authResult.refresh_token}`;
+      
+      return res.redirect(redirectUrl);
+    } catch (error) {
+      // Redirect to frontend with error
+      const errorUrl = `${process.env.FRONTEND_URL}/auth/error?message=${encodeURIComponent(error.message)}`;
+      return res.redirect(errorUrl);
+    }
   }
 }

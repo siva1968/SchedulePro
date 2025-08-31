@@ -82,10 +82,22 @@ export class MicrosoftOAuthService {
     try {
       console.log('Microsoft OAuth callback - Code:', code ? 'Present' : 'Missing');
       console.log('Microsoft OAuth callback - State:', state ? 'Present' : 'Missing');
+      console.log('Raw state parameter:', state);
       
       // Decode state parameter to get userId and integrationName
-      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
-      console.log('Decoded state:', decodedState);
+      let decodedState;
+      try {
+        const decodedBuffer = Buffer.from(state, 'base64').toString();
+        console.log('Decoded base64 string:', decodedBuffer);
+        decodedState = JSON.parse(decodedBuffer);
+        console.log('Parsed JSON state:', decodedState);
+      } catch (parseError) {
+        console.error('Failed to parse state parameter:', parseError);
+        console.error('Raw state:', state);
+        console.error('Decoded buffer:', Buffer.from(state, 'base64').toString());
+        throw new BadRequestException(`OAuth callback failed: Invalid state parameter - ${parseError.message}`);
+      }
+      
       const { userId, integrationName } = decodedState;
 
       // Exchange code for tokens

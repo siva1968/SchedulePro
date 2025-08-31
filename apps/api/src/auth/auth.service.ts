@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -26,6 +27,7 @@ export interface AuthResponse {
     email: string;
     firstName: string | null;
     lastName: string | null;
+    systemRole: string;
     organizations: Array<{
       id: string;
       name: string;
@@ -43,9 +45,16 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    private systemSettingsService: SystemSettingsService,
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResponse> {
+    // Check if registration is enabled
+    const registrationEnabled = await this.systemSettingsService.isRegistrationEnabled();
+    if (!registrationEnabled) {
+      throw new UnauthorizedException('User registration is currently disabled. Please contact an administrator.');
+    }
+
     // Check if user already exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email: registerDto.email },
@@ -110,6 +119,7 @@ export class AuthService {
         email: result.user.email,
         firstName: result.user.firstName,
         lastName: result.user.lastName,
+        systemRole: result.user.systemRole,
         organizations: result.organization ? [{
           id: result.organization.id,
           name: result.organization.name,
@@ -160,6 +170,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        systemRole: user.systemRole,
         organizations: user.organizations.map((org) => ({
           id: org.organization.id,
           name: org.organization.name,
@@ -237,6 +248,7 @@ export class AuthService {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
+          systemRole: user.systemRole,
           organizations: user.organizations.map((org) => ({
             id: org.organization.id,
             name: org.organization.name,
@@ -290,6 +302,7 @@ export class AuthService {
         language: true,
         phoneNumber: true,
         profileImageUrl: true,
+        systemRole: true,
         isEmailVerified: true,
         createdAt: true,
         organizations: {
@@ -320,6 +333,7 @@ export class AuthService {
       language: user.language,
       phoneNumber: user.phoneNumber,
       profileImageUrl: user.profileImageUrl,
+      systemRole: user.systemRole,
       isEmailVerified: user.isEmailVerified,
       createdAt: user.createdAt,
       organizations: user.organizations.map(om => ({
@@ -471,6 +485,240 @@ export class AuthService {
       passwordReset.user.email,
       passwordReset.user.firstName || passwordReset.user.email
     );
+  }
+
+  async azureAuth(azureUser: any): Promise<AuthResponse> {
+    if (!azureUser.email) {
+      throw new BadRequestException('Email not provided by Azure AD');
+    }
+
+    // Check if user exists
+    let user = await this.prisma.user.findUnique({
+      where: { email: azureUser.email },
+      include: {
+        organizations: {
+          include: {
+            organization: true
+          }
+        }
+      }
+    });
+
+    if (user) {
+      // Update user with Azure ID if not already set
+      if (!user.azureId && azureUser.azureId) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { azureId: azureUser.azureId }
+        });
+      }
+    } else {
+      // Create new user from Azure AD
+      const organizationName = this.extractOrganizationFromEmail(azureUser.email);
+      const organizationSlug = this.generateSlug(organizationName);
+
+      // Create user first (without type assertion for create operation)
+      const newUser = await this.prisma.user.create({
+        data: {
+          email: azureUser.email,
+          firstName: azureUser.firstName || null,
+          lastName: azureUser.lastName || null,
+          azureId: azureUser.azureId,
+          isActive: true,
+        }
+      });
+
+      // Create organization with the user as owner
+      const organization = await this.prisma.organization.create({
+        data: {
+          name: organizationName,
+          slug: organizationSlug,
+          ownerId: newUser.id,
+          members: {
+            create: {
+              userId: newUser.id,
+              role: 'OWNER',
+            },
+          },
+        },
+      });
+
+      // Fetch user again with organizations
+      user = await this.prisma.user.findUnique({
+        where: { id: newUser.id },
+        include: {
+          organizations: {
+            include: {
+              organization: true
+            }
+          }
+        }
+      });
+    }
+
+    if (!user) {
+      throw new BadRequestException('Failed to create or find user');
+    }
+
+    // Generate tokens
+    const organizationIds = user.organizations.map(member => member.organizationId);
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      organizationIds,
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload),
+      this.jwtService.signAsync(payload, { expiresIn: '30d' }),
+    ]);
+
+    // Store refresh token
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        refreshToken: await bcrypt.hash(refreshToken, 10),
+      },
+    });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        systemRole: user.systemRole,
+        organizations: user.organizations.map(member => ({
+          id: member.organization.id,
+          name: member.organization.name,
+          slug: member.organization.slug,
+          role: member.role,
+        })),
+      },
+    };
+  }
+
+  async googleAuth(googleUser: any): Promise<AuthResponse> {
+    if (!googleUser.email) {
+      throw new BadRequestException('Email not provided by Google');
+    }
+
+    // Check if user exists
+    let user = await this.prisma.user.findUnique({
+      where: { email: googleUser.email },
+      include: {
+        organizations: {
+          include: {
+            organization: true
+          }
+        }
+      }
+    });
+
+    if (user) {
+      // Update user with Google ID if not already set
+      if (!user.googleId && googleUser.googleId) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { googleId: googleUser.googleId }
+        });
+      }
+    } else {
+      // Create new user from Google
+      const organizationName = this.extractOrganizationFromEmail(googleUser.email);
+      const organizationSlug = this.generateSlug(organizationName);
+
+      // Create user first
+      const newUser = await this.prisma.user.create({
+        data: {
+          email: googleUser.email,
+          firstName: googleUser.firstName || null,
+          lastName: googleUser.lastName || null,
+          googleId: googleUser.googleId,
+          isActive: true,
+          isEmailVerified: true, // Google emails are pre-verified
+        }
+      });
+
+      // Create organization with the user as owner
+      const organization = await this.prisma.organization.create({
+        data: {
+          name: organizationName,
+          slug: organizationSlug,
+          ownerId: newUser.id,
+          members: {
+            create: {
+              userId: newUser.id,
+              role: 'OWNER',
+            },
+          },
+        },
+      });
+
+      // Fetch user again with organizations
+      user = await this.prisma.user.findUnique({
+        where: { id: newUser.id },
+        include: {
+          organizations: {
+            include: {
+              organization: true
+            }
+          }
+        }
+      });
+    }
+
+    if (!user) {
+      throw new BadRequestException('Failed to create or find user');
+    }
+
+    // Generate tokens
+    const organizationIds = user.organizations.map(member => member.organizationId);
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      organizationIds,
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload),
+      this.jwtService.signAsync(payload, { expiresIn: '30d' }),
+    ]);
+
+    // Store refresh token
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        refreshToken: await bcrypt.hash(refreshToken, 10),
+        lastLoginAt: new Date(),
+      },
+    });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        systemRole: user.systemRole,
+        organizations: user.organizations.map(member => ({
+          id: member.organization.id,
+          name: member.organization.name,
+          slug: member.organization.slug,
+          role: member.role,
+        })),
+      },
+    };
+  }
+
+  private extractOrganizationFromEmail(email: string): string {
+    const domain = email.split('@')[1];
+    const name = domain.split('.')[0];
+    return name.charAt(0).toUpperCase() + name.slice(1).replace(/[-_]/g, ' ');
   }
 
   private generateSlug(name: string): string {

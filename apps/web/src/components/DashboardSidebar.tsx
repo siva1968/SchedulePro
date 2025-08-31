@@ -18,6 +18,9 @@ import {
   LogOut,
   User,
   BookOpen,
+  Shield,
+  Mail,
+  UserCheck,
 } from 'lucide-react';
 
 interface NavItem {
@@ -35,6 +38,12 @@ const navigation: NavItem[] = [
   { name: 'Availability', href: '/dashboard/availability', icon: Clock },
   { name: 'Share Links', href: '/dashboard/share-links', icon: Share2 },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+];
+
+const adminNavigation: NavItem[] = [
+  { name: 'System Settings', href: '/dashboard/admin/system-settings', icon: Shield },
+  { name: 'Email Settings', href: '/dashboard/admin/email-settings', icon: Mail },
+  { name: 'User Management', href: '/dashboard/admin/users', icon: UserCheck },
 ];
 
 interface DashboardSidebarProps {
@@ -152,6 +161,46 @@ export default function DashboardSidebar({ className }: DashboardSidebarProps) {
                 </Link>
               );
             })}
+
+            {/* Admin Navigation */}
+            {user?.systemRole && (user.systemRole === 'ADMIN' || user.systemRole === 'SUPER_ADMIN') && (
+              <>
+                <div className="py-2">
+                  <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Administration
+                  </div>
+                </div>
+                {adminNavigation.map((item) => {
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={cn(
+                        'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                        isActive
+                          ? 'bg-red-50 text-red-700 border-r-2 border-red-700'
+                          : 'text-gray-700 hover:bg-red-50 hover:text-red-900'
+                      )}
+                      onClick={() => setIsMobileMenuOpen(false)}
+                    >
+                      <item.icon
+                        className={cn(
+                          'mr-3 h-5 w-5 flex-shrink-0',
+                          isActive ? 'text-red-700' : 'text-gray-400 group-hover:text-red-500'
+                        )}
+                      />
+                      {item.name}
+                      {item.badge && (
+                        <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          {item.badge}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </>
+            )}
           </nav>
 
           {/* Footer */}

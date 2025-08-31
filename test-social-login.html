@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Google OAuth - SchedulePro</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        button { background: #4285f4; color: white; border: none; padding: 15px 30px; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 10px; }
+        button:hover { background: #3367d6; }
+        .microsoft { background: #0078d4; }
+        .microsoft:hover { background: #106ebe; }
+        .info { background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>🔐 Test Social Login - SchedulePro</h1>
+    
+    <div class="info">
+        <h3>📝 Instructions:</h3>
+        <p>Click the buttons below to test Google and Microsoft OAuth authentication:</p>
+        <ul>
+            <li><strong>Google Login:</strong> Uses Google OAuth 2.0</li>
+            <li><strong>Microsoft Login:</strong> Uses Azure AD OAuth</li>
+        </ul>
+    </div>
+    
+    <h3>🚀 Social Login Options:</h3>
+    
+    <button onclick="testGoogleLogin()">
+        🔗 Sign in with Google
+    </button>
+    
+    <button onclick="testMicrosoftLogin()" class="microsoft">
+        🔗 Sign in with Microsoft
+    </button>
+    
+    <div id="status" style="margin-top: 20px; padding: 10px; border-radius: 5px; display: none;"></div>
+    
+    <h3>📱 How it works:</h3>
+    <ol>
+        <li>Click a social login button</li>
+        <li>You'll be redirected to the provider's login page</li>
+        <li>After successful authentication, you'll be redirected back to SchedulePro</li>
+        <li>Your account will be automatically created or linked</li>
+    </ol>
+
+    <script>
+        function testGoogleLogin() {
+            showStatus('Redirecting to Google OAuth...', 'info');
+            window.location.href = 'http://localhost:3001/api/v1/auth/google';
+        }
+        
+        function testMicrosoftLogin() {
+            showStatus('Redirecting to Microsoft OAuth...', 'info');
+            window.location.href = 'http://localhost:3001/api/v1/auth/azure';
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            statusDiv.className = type;
+            
+            if (type === 'info') {
+                statusDiv.style.backgroundColor = '#e3f2fd';
+                statusDiv.style.color = '#0d47a1';
+            } else if (type === 'success') {
+                statusDiv.style.backgroundColor = '#e8f5e8';
+                statusDiv.style.color = '#2e7d32';
+            } else if (type === 'error') {
+                statusDiv.style.backgroundColor = '#ffebee';
+                statusDiv.style.color = '#c62828';
+            }
+        }
+    </script>
+</body>
+</html>

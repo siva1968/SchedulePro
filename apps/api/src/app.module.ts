@@ -20,6 +20,7 @@ import { AvailabilityModule } from './availability/availability.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { PublicModule } from './public/public.module';
 import { EmailModule } from './email/email.module';
+import { SystemSettingsModule } from './system-settings/system-settings.module';
 
 // Configuration imports
 import { databaseConfig } from './config/database.config';
@@ -67,6 +68,7 @@ import { emailConfig } from './config/email.config';
     CalendarModule,
     PublicModule,
     EmailModule,
+    SystemSettingsModule,
   ],
   controllers: [],
   providers: [],
