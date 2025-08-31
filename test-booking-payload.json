@@ -1,0 +1,15 @@
+{
+  "meetingTypeId": "4e00ea42-9121-4bd9-98b1-aa63a3e838ba",
+  "startTime": "2025-09-05T10:00:00.000Z",
+  "endTime": "2025-09-05T11:00:00.000Z",
+  "attendees": [
+    {
+      "name": "Jane Smith Customer",
+      "email": "jane.customer@example.com",
+      "phoneNumber": "+1234567890"
+    }
+  ],
+  "title": "Customer Email Debug Test",
+  "description": "Testing customer email delivery with debug logging",
+  "meetingProvider": "GOOGLE_MEET"
+}

@@ -35,7 +35,7 @@ export class MeetingTypesService {
           hostId: userId,
           isActive: createMeetingTypeDto.isActive ?? true,
           requiresApproval: createMeetingTypeDto.requiresApproval ?? true, // Default to true for approval
-          meetingProvider: 'GOOGLE_MEET', // Default to Google Meet
+          meetingProvider: createMeetingTypeDto.meetingProvider ?? 'GOOGLE_MEET', // Use provided or default to Google Meet
         },
       });
 
@@ -138,6 +138,58 @@ export class MeetingTypesService {
 
     console.log('DEBUG - found meeting type:', meetingType.id);
     return meetingType;
+  }
+
+  async getMeetingProviderInfo(id: string, userId: string) {
+    console.log('DEBUG - getMeetingProviderInfo called with:', { id, userId });
+    
+    // Get user's organization memberships
+    const userMemberships = await this.prisma.organizationMember.findMany({
+      where: { userId },
+      select: { organizationId: true },
+    });
+
+    const userOrganizationIds = userMemberships.map(m => m.organizationId);
+
+    const meetingType = await this.prisma.meetingType.findFirst({
+      where: { 
+        id, 
+        organizationId: { in: userOrganizationIds },
+      },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            defaultMeetingProvider: true,
+            supportedMeetingProviders: true,
+          },
+        },
+      },
+    });
+
+    if (!meetingType) {
+      throw new NotFoundException('Meeting type not found or you do not have access to it');
+    }
+
+    // Determine the effective meeting provider with hierarchy
+    const effectiveMeetingProvider = meetingType.meetingProvider || 
+                                   meetingType.organization.defaultMeetingProvider;
+
+    return {
+      meetingTypeId: meetingType.id,
+      meetingTypeName: meetingType.name,
+      meetingTypeProvider: meetingType.meetingProvider,
+      organizationDefaultProvider: meetingType.organization.defaultMeetingProvider,
+      effectiveMeetingProvider: effectiveMeetingProvider,
+      supportedProviders: meetingType.organization.supportedMeetingProviders,
+      hierarchy: {
+        source: meetingType.meetingProvider ? 'meeting_type' : 'organization_default',
+        description: meetingType.meetingProvider 
+          ? `Using meeting type specific provider: ${meetingType.meetingProvider}`
+          : `Using organization default provider: ${meetingType.organization.defaultMeetingProvider}`
+      }
+    };
   }
 
   async update(id: string, userId: string, updateMeetingTypeDto: UpdateMeetingTypeDto) {

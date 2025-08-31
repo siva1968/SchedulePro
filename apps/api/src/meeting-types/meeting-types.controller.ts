@@ -48,6 +48,14 @@ export class MeetingTypesController {
     return this.meetingTypesService.findOne(id, req.user.id);
   }
 
+  @Get(':id/meeting-provider-info')
+  @ApiOperation({ summary: 'Get meeting provider information for a meeting type' })
+  @ApiResponse({ status: 200, description: 'Meeting provider info retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Meeting type not found' })
+  getMeetingProviderInfo(@Param('id') id: string, @Request() req: any) {
+    return this.meetingTypesService.getMeetingProviderInfo(id, req.user.id);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Update a meeting type' })
   @ApiResponse({ status: 200, description: 'Meeting type updated successfully' })

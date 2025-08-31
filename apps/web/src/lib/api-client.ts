@@ -199,6 +199,7 @@ class ApiClient {
     locationType?: string;
     locationDetails?: any;
     meetingUrl?: string;
+    meetingProvider?: string;
     formResponses?: any;
     paymentAmount?: number;
     attendees: Array<{
@@ -208,10 +209,29 @@ class ApiClient {
       userId?: string;
     }>;
   }) {
-    return this.request('/bookings', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    // Check if user is authenticated by checking for token
+    const token = localStorage.getItem('access_token');
+    
+    // Debug logging
+    console.log('🔐 DEBUG - createBooking called');
+    console.log('🔐 DEBUG - Token exists:', !!token);
+    console.log('🔐 DEBUG - Token preview:', token ? token.substring(0, 20) + '...' : 'null');
+    
+    if (token) {
+      // Authenticated user - use the dedicated host booking endpoint for CONFIRMED status
+      console.log('🔐 DEBUG - Using authenticated HOST endpoint: /bookings/host');
+      return this.request('/bookings/host', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    } else {
+      // Public user - use public endpoint for PENDING status
+      console.log('🔐 DEBUG - Using public endpoint: /public/bookings');
+      return this.request('/public/bookings', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    }
   }
 
   async updateBooking(id: string, data: any) {

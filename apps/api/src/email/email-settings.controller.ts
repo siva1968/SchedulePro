@@ -12,10 +12,12 @@ import {
   HttpException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SystemAdminGuard } from '../auth/guards/system-admin.guard';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from './email.service';
+import { EncryptionService } from '../calendar/encryption.service';
 import {
   CreateEmailSettingsDto,
   UpdateEmailSettingsDto,
@@ -31,6 +33,7 @@ export class EmailSettingsController {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private encryptionService: EncryptionService,
   ) {}
 
   @Get()
@@ -89,6 +92,7 @@ export class EmailSettingsController {
   }
 
   @Post()
+  @Throttle(5, 300) // 5 email setting creations per 5 minutes
   @ApiOperation({ summary: 'Create new email settings (System Admin only)' })
   @ApiResponse({ status: 201, description: 'Email settings created successfully', type: EmailSettingsResponseDto })
   async createEmailSettings(
@@ -108,9 +112,22 @@ export class EmailSettingsController {
       });
     }
 
+    // Encrypt sensitive fields before storing
+    const encryptedData = { ...createDto };
+    
+    if (createDto.smtpPassword) {
+      encryptedData.smtpPassword = await this.encryptionService.encrypt(createDto.smtpPassword);
+    }
+    if (createDto.sendgridApiKey) {
+      encryptedData.sendgridApiKey = await this.encryptionService.encrypt(createDto.sendgridApiKey);
+    }
+    if (createDto.zeptoApiKey) {
+      encryptedData.zeptoApiKey = await this.encryptionService.encrypt(createDto.zeptoApiKey);
+    }
+
     const emailSettings = await this.prisma.emailSettings.create({
       data: {
-        ...createDto,
+        ...encryptedData,
         isActive: shouldActivate,
         createdBy: userId,
         updatedBy: userId,
@@ -136,6 +153,7 @@ export class EmailSettingsController {
   }
 
   @Put(':id')
+  @Throttle(10, 300) // 10 email setting updates per 5 minutes
   @ApiOperation({ summary: 'Update email settings (System Admin only)' })
   @ApiResponse({ status: 200, description: 'Email settings updated successfully', type: EmailSettingsResponseDto })
   async updateEmailSettings(
@@ -161,10 +179,23 @@ export class EmailSettingsController {
       });
     }
 
+    // Encrypt sensitive fields before updating
+    const encryptedUpdateData = { ...updateDto };
+    
+    if (updateDto.smtpPassword) {
+      encryptedUpdateData.smtpPassword = await this.encryptionService.encrypt(updateDto.smtpPassword);
+    }
+    if (updateDto.sendgridApiKey) {
+      encryptedUpdateData.sendgridApiKey = await this.encryptionService.encrypt(updateDto.sendgridApiKey);
+    }
+    if (updateDto.zeptoApiKey) {
+      encryptedUpdateData.zeptoApiKey = await this.encryptionService.encrypt(updateDto.zeptoApiKey);
+    }
+
     const updatedSettings = await this.prisma.emailSettings.update({
       where: { id },
       data: {
-        ...updateDto,
+        ...encryptedUpdateData,
         updatedBy: userId,
       },
     });

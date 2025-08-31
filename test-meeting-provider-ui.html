@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting Provider UI Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 600px; 
+            margin: 50px auto; 
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .provider-field {
+            display: none;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .provider-field.show {
+            display: block;
+        }
+        .debug {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🧪 Meeting Provider Field Test</h2>
+        <p>This test simulates the CreateBookingModal behavior to verify the meeting provider field shows correctly.</p>
+        
+        <div class="form-group">
+            <label for="meetingType">Meeting Type *</label>
+            <select id="meetingType" onchange="toggleMeetingProvider()">
+                <option value="">Select a meeting type</option>
+                <option value="mt-1">30 Min Meeting (30 min)</option>
+                <option value="mt-2">1 Hour Meeting (60 min)</option>
+                <option value="mt-3">Quick Call (15 min)</option>
+            </select>
+        </div>
+        
+        <div class="provider-field" id="providerField">
+            <div class="form-group">
+                <label for="meetingProvider">Meeting Provider *</label>
+                <select id="meetingProvider" onchange="logProviderChange()">
+                    <option value="">Select a meeting provider</option>
+                    <option value="ZOOM">Zoom</option>
+                    <option value="GOOGLE_MEET">Google Meet</option>
+                    <option value="MICROSOFT_TEAMS">Microsoft Teams</option>
+                </select>
+                <div class="debug">
+                    Available providers: ZOOM, GOOGLE_MEET, MICROSOFT_TEAMS
+                </div>
+            </div>
+        </div>
+        
+        <div class="debug">
+            <strong>Test Status:</strong>
+            <div id="status">Select a meeting type to see the meeting provider field</div>
+        </div>
+    </div>
+
+    <script>
+        function toggleMeetingProvider() {
+            const meetingType = document.getElementById('meetingType').value;
+            const providerField = document.getElementById('providerField');
+            const status = document.getElementById('status');
+            
+            if (meetingType) {
+                providerField.classList.add('show');
+                status.innerHTML = '✅ Meeting provider field is now visible! This is the expected behavior in CreateBookingModal.';
+                
+                // Auto-select first provider (like in the real app)
+                const providerSelect = document.getElementById('meetingProvider');
+                if (!providerSelect.value) {
+                    providerSelect.value = 'ZOOM';
+                    logProviderChange();
+                }
+            } else {
+                providerField.classList.remove('show');
+                status.innerHTML = 'Select a meeting type to see the meeting provider field';
+            }
+        }
+        
+        function logProviderChange() {
+            const provider = document.getElementById('meetingProvider').value;
+            console.log('🎯 Meeting provider changed to:', provider);
+            
+            if (provider) {
+                document.getElementById('status').innerHTML = 
+                    `✅ Meeting provider selected: <strong>${provider}</strong><br>
+                     This would be included in the booking creation payload.`;
+            }
+        }
+        
+        // Simulate the component mount behavior
+        window.onload = function() {
+            console.log('📡 Loaded meeting providers:', ['ZOOM', 'GOOGLE_MEET', 'MICROSOFT_TEAMS']);
+        };
+    </script>
+</body>
+</html>

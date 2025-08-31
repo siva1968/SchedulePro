@@ -13,6 +13,7 @@ import { DatabaseModule } from '../database/database.module';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../auth/auth.module';
 import { MicrosoftOAuthService } from '../auth/oauth/microsoft-oauth.service';
+import { ZoomOAuthService } from './services/zoom-oauth.service';
 
 @Module({
   imports: [DatabaseModule, ConfigModule, AuthModule],
@@ -30,6 +31,7 @@ import { MicrosoftOAuthService } from '../auth/oauth/microsoft-oauth.service';
     EncryptionService,
     ConflictDetectionService,
     MicrosoftOAuthService,
+    ZoomOAuthService,
   ],
   exports: [
     CalendarService, 
@@ -38,6 +40,7 @@ import { MicrosoftOAuthService } from '../auth/oauth/microsoft-oauth.service';
     CalDAVService,
     EncryptionService,
     ConflictDetectionService,
+    ZoomOAuthService,
   ],
 })
 export class CalendarModule {}

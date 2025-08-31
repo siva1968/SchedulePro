@@ -7,10 +7,18 @@ import {
   IsArray,
   ValidateNested,
   IsObject,
-  IsDecimal,
+  IsNumber,
   IsPhoneNumber,
+  MaxLength,
+  MinLength,
+  IsUUID,
+  IsUrl,
+  Min,
+  Max,
+  ArrayMinSize,
+  ArrayMaxSize,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum LocationType {
@@ -47,51 +55,62 @@ export enum MeetingProvider {
 }
 
 export class CreateBookingAttendeeDto {
-  @ApiProperty()
-  @IsEmail()
+  @ApiProperty({ description: 'Attendee email address' })
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  @MaxLength(255, { message: 'Email must not exceed 255 characters' })
+  @Transform(({ value }) => value?.toLowerCase()?.trim())
   email: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Attendee full name' })
   @IsString()
+  @MinLength(2, { message: 'Name must be at least 2 characters long' })
+  @MaxLength(100, { message: 'Name must not exceed 100 characters' })
+  @Transform(({ value }) => value?.trim())
   name: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Attendee phone number' })
   @IsOptional()
-  @IsPhoneNumber()
+  @IsPhoneNumber(null, { message: 'Please provide a valid phone number' })
   phoneNumber?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'User ID if attendee is a registered user' })
   @IsOptional()
-  @IsString()
+  @IsUUID('4', { message: 'User ID must be a valid UUID' })
   userId?: string;
 }
 
 export class CreateBookingDto {
-  @ApiProperty()
-  @IsString()
+  @ApiProperty({ description: 'Meeting type ID' })
+  @IsUUID('4', { message: 'Meeting type ID must be a valid UUID' })
   meetingTypeId: string;
 
-  @ApiProperty()
-  @IsDateString()
+  @ApiProperty({ description: 'Booking start time in ISO format' })
+  @IsDateString({}, { message: 'Start time must be a valid ISO date string' })
   startTime: string;
 
-  @ApiProperty()
-  @IsDateString()
+  @ApiProperty({ description: 'Booking end time in ISO format' })
+  @IsDateString({}, { message: 'End time must be a valid ISO date string' })
   endTime: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Custom booking title' })
   @IsOptional()
   @IsString()
+  @MaxLength(200, { message: 'Title must not exceed 200 characters' })
+  @Transform(({ value }) => value?.trim())
   title?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Booking description' })
   @IsOptional()
   @IsString()
+  @MaxLength(1000, { message: 'Description must not exceed 1000 characters' })
+  @Transform(({ value }) => value?.trim())
   description?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Additional notes' })
   @IsOptional()
   @IsString()
+  @MaxLength(500, { message: 'Notes must not exceed 500 characters' })
+  @Transform(({ value }) => value?.trim())
   notes?: string;
 
   @ApiPropertyOptional({ enum: LocationType })
@@ -104,9 +123,10 @@ export class CreateBookingDto {
   @IsObject()
   locationDetails?: any;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Meeting URL for online meetings' })
   @IsOptional()
-  @IsString()
+  @IsUrl({}, { message: 'Meeting URL must be a valid URL' })
+  @MaxLength(500, { message: 'Meeting URL must not exceed 500 characters' })
   meetingUrl?: string;
 
   @ApiPropertyOptional({
@@ -115,21 +135,32 @@ export class CreateBookingDto {
     example: 'GOOGLE_MEET'
   })
   @IsOptional()
-  @IsEnum(MeetingProvider)
+  @IsEnum(MeetingProvider, { message: 'Invalid meeting provider' })
   meetingProvider?: MeetingProvider;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Form responses as JSON object' })
   @IsOptional()
   @IsObject()
   formResponses?: any;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ 
+    description: 'Payment amount in cents',
+    minimum: 0,
+    maximum: 100000000 // $1M max
+  })
   @IsOptional()
-  @IsDecimal()
+  @IsNumber({}, { message: 'Payment amount must be a valid number' })
+  @Min(0, { message: 'Payment amount cannot be negative' })
+  @Max(100000000, { message: 'Payment amount exceeds maximum allowed' })
   paymentAmount?: number;
 
-  @ApiProperty({ type: [CreateBookingAttendeeDto] })
+  @ApiProperty({ 
+    type: [CreateBookingAttendeeDto],
+    description: 'List of attendees (1-10 attendees allowed)'
+  })
   @IsArray()
+  @ArrayMinSize(1, { message: 'At least one attendee is required' })
+  @ArrayMaxSize(10, { message: 'Maximum 10 attendees allowed' })
   @ValidateNested({ each: true })
   @Type(() => CreateBookingAttendeeDto)
   attendees: CreateBookingAttendeeDto[];

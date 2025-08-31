@@ -19,6 +19,7 @@ interface MeetingType {
   isActive: boolean;
   slug: string;
   createdAt: string;
+  meetingProvider?: string;
 }
 
 export default function MeetingTypesPage() {
@@ -182,6 +183,9 @@ export default function MeetingTypesPage() {
                       Duration
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Meeting Provider
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -205,6 +209,17 @@ export default function MeetingTypesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">{meetingType.duration} minutes</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {meetingType.meetingProvider ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {meetingType.meetingProvider.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">Not set</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${

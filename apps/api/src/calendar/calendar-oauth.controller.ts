@@ -16,6 +16,7 @@ import { CalendarService } from './calendar.service';
 import { CalendarProvider } from './dto';
 import { ConfigService } from '@nestjs/config';
 import { MicrosoftOAuthService } from '../auth/oauth/microsoft-oauth.service';
+import { ZoomOAuthService } from './services/zoom-oauth.service';
 
 @ApiTags('calendar-oauth')
 @Controller('calendar/oauth')
@@ -26,6 +27,7 @@ export class CalendarOAuthController {
     private readonly calendarService: CalendarService,
     private readonly configService: ConfigService,
     private readonly microsoftOAuthService: MicrosoftOAuthService,
+    private readonly zoomOAuthService: ZoomOAuthService,
   ) {}
 
   @Get('google')
@@ -450,6 +452,123 @@ export class CalendarOAuthController {
         throw new BadRequestException('Outlook Calendar access token has expired. Please reconnect.');
       }
       throw new InternalServerErrorException('Failed to retrieve Outlook Calendar events');
+    }
+  }
+
+  // ============================================================================
+  // ZOOM OAUTH
+  // ============================================================================
+
+  @Get('zoom')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Initiate Zoom OAuth flow' })
+  @ApiResponse({ status: 302, description: 'Redirect to Zoom OAuth' })
+  @Redirect()
+  async initiateZoomOAuth(
+    @Request() req: any,
+    @Query('integrationName') integrationName?: string,
+  ) {
+    try {
+      // Create state parameter with user ID and optional integration name
+      const state = JSON.stringify({
+        userId: req.user.id,
+        integrationName: integrationName || 'Zoom',
+        provider: 'zoom',
+      });
+
+      const authUrl = this.zoomOAuthService.generateAuthUrl(Buffer.from(state).toString('base64'));
+      
+      return { url: authUrl };
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to initiate Zoom OAuth');
+    }
+  }
+
+  @Get('zoom/url')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get Zoom OAuth URL (JSON response)' })
+  @ApiResponse({ status: 200, description: 'Returns OAuth URL as JSON' })
+  async getZoomOAuthUrl(
+    @Request() req: any,
+    @Query('integrationName') integrationName?: string,
+  ) {
+    try {
+      // Create state parameter with user ID and optional integration name
+      const state = JSON.stringify({
+        userId: req.user.id,
+        integrationName: integrationName || 'Zoom',
+        provider: 'zoom',
+      });
+
+      const authUrl = this.zoomOAuthService.generateAuthUrl(Buffer.from(state).toString('base64'));
+      
+      return { authUrl };
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to generate Zoom OAuth URL');
+    }
+  }
+
+  @Get('zoom/callback')
+  @ApiOperation({ summary: 'Handle Zoom OAuth callback' })
+  @ApiResponse({ status: 302, description: 'Redirect to frontend with result' })
+  @Redirect()
+  async handleZoomCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') error?: string,
+  ) {
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+    
+    if (error) {
+      return {
+        url: `${frontendUrl}/dashboard/calendar?error=${encodeURIComponent(error)}`,
+      };
+    }
+
+    if (!code || !state) {
+      return {
+        url: `${frontendUrl}/dashboard/calendar?error=missing_parameters`,
+      };
+    }
+
+    try {
+      console.log('Zoom OAuth callback received:', { code: !!code, state: !!state });
+      
+      // Decode state parameter
+      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      const { userId, integrationName } = decodedState;
+
+      console.log('Decoded state:', { userId, integrationName });
+
+      // Exchange code for tokens
+      const tokens = await this.zoomOAuthService.exchangeCodeForTokens(code);
+      
+      if (!tokens.access_token) {
+        throw new Error('No access token received');
+      }
+
+      console.log('Tokens received from Zoom');
+
+      // Get user profile
+      const profile = await this.zoomOAuthService.getUserProfile(tokens.access_token);
+      
+      console.log('Zoom profile retrieved:', { email: profile.email, id: profile.id });
+
+      // Save tokens and integration
+      await this.zoomOAuthService.saveTokens(userId, tokens, profile);
+
+      console.log('Zoom integration created successfully');
+
+      return {
+        url: `${frontendUrl}/dashboard/calendar?success=true&provider=zoom`,
+      };
+    } catch (error) {
+      console.error('Zoom OAuth callback error:', error);
+      return {
+        url: `${frontendUrl}/dashboard/calendar?error=${encodeURIComponent('authentication_failed')}`,
+      };
     }
   }
 }

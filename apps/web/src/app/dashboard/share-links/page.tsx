@@ -19,6 +19,7 @@ interface MeetingType {
   price: number;
   locationType: 'ONLINE' | 'IN_PERSON' | 'PHONE';
   isActive: boolean;
+  meetingProvider?: string;
 }
 
 interface Organization {
@@ -206,6 +207,11 @@ export default function ShareLinksPage() {
                       <Badge key={type.id} variant="secondary" className="text-xs">
                         {type.name} ({type.duration}min)
                         {type.price > 0 && ` - $${type.price}`}
+                        {type.meetingProvider && (
+                          <span className="ml-1 text-blue-600">
+                            • {type.meetingProvider.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </span>
+                        )}
                       </Badge>
                     ))}
                   </div>

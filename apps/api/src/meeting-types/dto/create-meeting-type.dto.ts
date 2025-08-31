@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, IsBoolean, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsBoolean, Min, Max, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { MeetingProvider } from '@prisma/client';
 
 export class CreateMeetingTypeDto {
   @ApiProperty({
@@ -97,4 +98,14 @@ export class CreateMeetingTypeDto {
   @IsOptional()
   @Min(0)
   requiredNoticeMinutes?: number;
+
+  @ApiProperty({
+    description: 'Meeting provider/platform for video conferencing',
+    enum: MeetingProvider,
+    example: MeetingProvider.GOOGLE_MEET,
+    required: false,
+  })
+  @IsEnum(MeetingProvider)
+  @IsOptional()
+  meetingProvider?: MeetingProvider;
 }

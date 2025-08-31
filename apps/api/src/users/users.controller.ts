@@ -9,8 +9,11 @@ import {
   UseGuards,
   Query,
   ParseUUIDPipe,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, ChangePasswordDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards';
@@ -24,7 +27,9 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a new user' })
+  @UseGuards(SystemAdminGuard) // Only system admins can create users
+  @Throttle(5, 300) // 5 user creations per 5 minutes
+  @ApiOperation({ summary: 'Create a new user (System Admin only)' })
   @ApiResponse({
     status: 201,
     description: 'User successfully created',
@@ -33,15 +38,24 @@ export class UsersController {
     status: 400,
     description: 'Bad request - validation errors or email already exists',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - System Admin access required',
+  })
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all users' })
+  @UseGuards(SystemAdminGuard) // Only system admins can view all users
+  @ApiOperation({ summary: 'Get all users (System Admin only)' })
   @ApiResponse({
     status: 200,
     description: 'List of all users',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - System Admin access required',
   })
   findAll() {
     return this.usersService.findAll();
@@ -57,7 +71,19 @@ export class UsersController {
     status: 404,
     description: 'User not found',
   })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - can only access own profile',
+  })
+  findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    // Allow users to access their own profile or system admins to access any profile
+    const currentUserId = req.user.sub || req.user.id;
+    const isSystemAdmin = req.user.role === 'SYSTEM_ADMIN';
+    
+    if (id !== currentUserId && !isSystemAdmin) {
+      throw new ForbiddenException('You can only access your own profile');
+    }
+    
     return this.usersService.findOne(id);
   }
 
@@ -83,11 +109,24 @@ export class UsersController {
     status: 404,
     description: 'User not found',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - can only access own availability',
+  })
   getUserAvailability(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
+    @Req() req: any,
   ) {
+    // Allow users to access their own availability or system admins to access any availability
+    const currentUserId = req.user.sub || req.user.id;
+    const isSystemAdmin = req.user.role === 'SYSTEM_ADMIN';
+    
+    if (id !== currentUserId && !isSystemAdmin) {
+      throw new ForbiddenException('You can only access your own availability');
+    }
+    
     return this.usersService.getUserAvailability(
       id,
       new Date(startDate),
@@ -96,6 +135,7 @@ export class UsersController {
   }
 
   @Patch(':id')
+  @Throttle(10, 300) // 10 updates per 5 minutes
   @ApiOperation({ summary: 'Update user' })
   @ApiResponse({
     status: 200,
@@ -109,14 +149,28 @@ export class UsersController {
     status: 400,
     description: 'Bad request - validation errors or email already taken',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - can only update own profile',
+  })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,
+    @Req() req: any,
   ) {
+    // Allow users to update their own profile or system admins to update any profile
+    const currentUserId = req.user.sub || req.user.id;
+    const isSystemAdmin = req.user.role === 'SYSTEM_ADMIN';
+    
+    if (id !== currentUserId && !isSystemAdmin) {
+      throw new ForbiddenException('You can only update your own profile');
+    }
+    
     return this.usersService.update(id, updateUserDto);
   }
 
   @Patch(':id/change-password')
+  @Throttle(5, 300) // 5 password changes per 5 minutes
   @ApiOperation({ summary: 'Change user password' })
   @ApiResponse({
     status: 200,
@@ -130,10 +184,23 @@ export class UsersController {
     status: 404,
     description: 'User not found',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - can only change own password',
+  })
   changePassword(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() changePasswordDto: ChangePasswordDto,
+    @Req() req: any,
   ) {
+    // Allow users to change their own password or system admins to change any password
+    const currentUserId = req.user.sub || req.user.id;
+    const isSystemAdmin = req.user.role === 'SYSTEM_ADMIN';
+    
+    if (id !== currentUserId && !isSystemAdmin) {
+      throw new ForbiddenException('You can only change your own password');
+    }
+    
     return this.usersService.changePassword(
       id,
       changePasswordDto.currentPassword,
@@ -142,7 +209,8 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Soft delete user (deactivate)' })
+  @UseGuards(SystemAdminGuard) // Only system admins can delete users
+  @ApiOperation({ summary: 'Soft delete user (deactivate) - System Admin only' })
   @ApiResponse({
     status: 200,
     description: 'User successfully deactivated',
@@ -150,6 +218,10 @@ export class UsersController {
   @ApiResponse({
     status: 404,
     description: 'User not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - System Admin access required',
   })
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.remove(id);

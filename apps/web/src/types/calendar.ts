@@ -2,6 +2,7 @@ export enum CalendarProvider {
   GOOGLE = 'google',
   OUTLOOK = 'outlook',
   CALDAV = 'caldav',
+  ZOOM = 'zoom',
 }
 
 export interface CalendarIntegration {

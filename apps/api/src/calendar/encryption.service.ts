@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createCipher, createDecipher, randomBytes, scrypt } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'crypto';
 import { promisify } from 'util';
 
 @Injectable()
 export class EncryptionService {
   private readonly logger = new Logger(EncryptionService.name);
-  private readonly algorithm = 'aes-256-ctr';
+  private readonly algorithm = 'aes-256-gcm';
   private readonly scryptAsync = promisify(scrypt);
 
   constructor(private configService: ConfigService) {}
@@ -37,13 +37,16 @@ export class EncryptionService {
 
       const key = await this.getEncryptionKey();
       const iv = randomBytes(16);
-      const cipher = createCipher(this.algorithm, key);
+      const cipher = createCipheriv(this.algorithm, key, iv);
       
       let encrypted = cipher.update(text, 'utf8', 'hex');
       encrypted += cipher.final('hex');
       
-      // Combine IV and encrypted data
-      const combined = iv.toString('hex') + ':' + encrypted;
+      // Get authentication tag for GCM mode
+      const authTag = cipher.getAuthTag();
+      
+      // Combine IV, auth tag, and encrypted data
+      const combined = iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;
       
       return combined;
     } catch (error) {
@@ -62,14 +65,16 @@ export class EncryptionService {
       const key = await this.getEncryptionKey();
       const parts = encryptedText.split(':');
       
-      if (parts.length !== 2) {
-        throw new Error('Invalid encrypted data format');
+      if (parts.length !== 3) {
+        throw new Error('Invalid encrypted data format - expected IV:authTag:data');
       }
 
       const iv = Buffer.from(parts[0], 'hex');
-      const encrypted = parts[1];
+      const authTag = Buffer.from(parts[1], 'hex');
+      const encrypted = parts[2];
       
-      const decipher = createDecipher(this.algorithm, key);
+      const decipher = createDecipheriv(this.algorithm, key, iv);
+      decipher.setAuthTag(authTag);
       
       let decrypted = decipher.update(encrypted, 'hex', 'utf8');
       decrypted += decipher.final('utf8');

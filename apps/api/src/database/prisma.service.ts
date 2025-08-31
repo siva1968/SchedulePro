@@ -10,30 +10,35 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   constructor(private configService: ConfigService) {
+    const logLevel = configService.get('NODE_ENV') === 'production' 
+      ? ['error', 'warn'] // Only log errors and warnings in production
+      : ['query', 'error', 'info', 'warn']; // Full logging in development
+
     super({
       datasources: {
         db: {
           url: configService.get<string>('DATABASE_URL'),
         },
       },
-      log: [
-        {
-          emit: 'event',
-          level: 'query',
+      log: logLevel.map(level => ({
+        emit: 'event',
+        level: level as any,
+      })),
+      // Connection pool configuration for production
+      ...(configService.get('NODE_ENV') === 'production' && {
+        datasources: {
+          db: {
+            url: configService.get<string>('DATABASE_URL'),
+          },
         },
-        {
-          emit: 'event',
-          level: 'error',
+        // Add connection pool limits for production
+        __internal: {
+          engine: {
+            connectionTimeout: 20000,
+            queryTimeout: 60000,
+          },
         },
-        {
-          emit: 'event',
-          level: 'info',
-        },
-        {
-          emit: 'event',
-          level: 'warn',
-        },
-      ],
+      }),
     });
   }
 

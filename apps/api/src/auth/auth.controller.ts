@@ -1,9 +1,11 @@
 import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards, Get, Request, UnauthorizedException, Patch, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto, RefreshTokenDto, UpdateProfileDto } from './dto';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { JwtAuthGuard, AzureADAuthGuard, GoogleOAuthGuard } from './guards';
+import { AuthThrottlerGuard } from './guards/auth-throttler.guard';
 import { Response } from 'express';
 
 @ApiTags('Authentication')
@@ -12,6 +14,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @Throttle(5, 60) // 5 registrations per 60 seconds
+  @UseGuards(AuthThrottlerGuard)
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({
     status: 201,
@@ -54,6 +58,8 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle(10, 60) // 10 login attempts per 60 seconds
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login user' })
   @ApiResponse({
@@ -253,6 +259,8 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @Throttle(3, 300) // 3 password reset requests per 5 minutes
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request password reset' })
   @ApiResponse({
@@ -277,6 +285,8 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Throttle(5, 300) // 5 password reset attempts per 5 minutes
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using token' })
   @ApiResponse({

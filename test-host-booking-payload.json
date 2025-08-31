@@ -1,0 +1,16 @@
+{
+  "title": "Host Timezone Test Booking",
+  "description": "Testing that host bookings use only host timezone for all emails",
+  "startTime": "2025-09-03T13:30:00.000Z",
+  "endTime": "2025-09-03T14:00:00.000Z",
+  "attendees": [
+    {
+      "name": "siva m",
+      "email": "siva.test.customer@gmail.com",
+      "phoneNumber": "+1234567890"
+    }
+  ],
+  "timezone": "America/New_York",
+  "meetingTypeId": "4e00ea42-9121-4bd9-98b1-aa63a3e838ba",
+  "meetingProvider": "GOOGLE_MEET"
+}

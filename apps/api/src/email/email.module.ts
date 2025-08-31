@@ -5,6 +5,7 @@ import { EmailSettingsController } from './email-settings.controller';
 import { NodemailerProvider } from './providers/nodemailer.provider';
 import { SendGridProvider } from './providers/sendgrid.provider';
 import { ZeptoProvider } from './providers/zepto.provider';
+import { EncryptionService } from '../calendar/encryption.service';
 import { DatabaseModule } from '../database/database.module';
 
 @Module({
@@ -12,6 +13,7 @@ import { DatabaseModule } from '../database/database.module';
   controllers: [EmailSettingsController],
   providers: [
     EmailService,
+    EncryptionService,
     NodemailerProvider,
     SendGridProvider,
     ZeptoProvider,

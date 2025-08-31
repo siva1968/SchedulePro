@@ -77,6 +77,7 @@ interface BookingState {
     locationType?: string;
     locationDetails?: any;
     meetingUrl?: string;
+    meetingProvider?: string;
     formResponses?: any;
     paymentAmount?: number;
     attendees: Array<{

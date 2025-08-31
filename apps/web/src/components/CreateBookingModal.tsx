@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useBookingStore } from '@/stores/booking-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { apiClient } from '@/lib/api-client';
 import TimezoneSelect from './TimezoneSelect';
 import { getSystemTimezone, convertToTimezone } from '@/lib/timezone';
@@ -40,10 +41,12 @@ interface CreateBookingData {
   attendeeEmail: string;
   attendeePhone: string;
   timezone: string;
+  meetingProvider: string;
 }
 
 export default function CreateBookingModal({ isOpen, onClose, onSuccess }: CreateBookingModalProps) {
   const { createBooking } = useBookingStore();
+  const { user, isAuthenticated, initialize } = useAuthStore();
   const [formData, setFormData] = useState<CreateBookingData>({
     meetingTypeId: '',
     selectedDate: '',
@@ -56,17 +59,47 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
     attendeeEmail: '',
     attendeePhone: '',
     timezone: getSystemTimezone(),
+    meetingProvider: '',
   });
   const [meetingTypes, setMeetingTypes] = useState<MeetingType[]>([]);
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+  const [availableMeetingProviders, setAvailableMeetingProviders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Initialize auth if needed when modal opens
   useEffect(() => {
-    if (isOpen) {
-      loadMeetingTypes();
+    if (isOpen && !isAuthenticated) {
+      console.log('🔐 Auth not ready, initializing...');
+      initialize();
     }
-  }, [isOpen]);
+  }, [isOpen, isAuthenticated, initialize]);
+
+  useEffect(() => {
+    if (isOpen && isAuthenticated) {
+      console.log('📅 Modal opened and authenticated, loading data...');
+      loadMeetingTypes();
+      loadAvailableMeetingProviders();
+    }
+  }, [isOpen, isAuthenticated]);
+
+  // Set default meeting provider when meeting type is selected and provider is empty
+  useEffect(() => {
+    if (formData.meetingTypeId && !formData.meetingProvider && availableMeetingProviders.length > 0) {
+      const defaultProvider = 'ZOOM'; // Organization default
+      console.log('🎯 Setting default provider after meeting type selection:', defaultProvider);
+      setFormData(prev => ({ ...prev, meetingProvider: defaultProvider }));
+    }
+  }, [formData.meetingTypeId, formData.meetingProvider, availableMeetingProviders]);
+
+  // Ensure default provider is set when modal opens for authenticated users
+  useEffect(() => {
+    if (isOpen && isAuthenticated && !formData.meetingProvider) {
+      const defaultProvider = 'ZOOM';
+      console.log('🎯 Setting initial default provider for authenticated user:', defaultProvider);
+      setFormData(prev => ({ ...prev, meetingProvider: defaultProvider }));
+    }
+  }, [isOpen, isAuthenticated, formData.meetingProvider]);
 
   // Load available slots when date and meeting type are selected
   useEffect(() => {
@@ -110,6 +143,47 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
       setMeetingTypes(data);
     } catch (error) {
       console.error('Failed to load meeting types:', error);
+    }
+  };
+
+  const loadAvailableMeetingProviders = async () => {
+    try {
+      console.log('🔄 Loading meeting providers...');
+      console.log('👤 Current user:', user);
+      console.log('🔐 Is authenticated:', isAuthenticated);
+      
+      // Default configuration - ZOOM is our organization's default
+      let defaultProvider = 'ZOOM';
+      let availableProviders = ['ZOOM', 'GOOGLE_MEET', 'MICROSOFT_TEAMS'];
+      
+      // Get default provider from user's first organization if available
+      if (user && user.organizations && user.organizations.length > 0) {
+        const userOrg = user.organizations[0];
+        console.log('🏢 User organization found:', userOrg.name, 'ID:', userOrg.id);
+        
+        // For now, use hardcoded ZOOM as default since we know that's what's configured
+        // In the future, this could fetch the actual organization settings
+        defaultProvider = 'ZOOM';
+        console.log('🎯 Using organization default provider:', defaultProvider);
+      } else {
+        console.log('📋 No user organization found, using default providers');
+        console.log('   - User exists:', !!user);
+        console.log('   - Organizations array:', user?.organizations);
+      }
+      
+      setAvailableMeetingProviders(availableProviders);
+      
+      // Always set the organization's default meeting provider
+      console.log('🏷️ Setting default meeting provider to:', defaultProvider);
+      setFormData(prev => ({ ...prev, meetingProvider: defaultProvider }));
+      
+      console.log('✅ Final default meeting provider:', defaultProvider);
+    } catch (error) {
+      console.error('❌ Failed to load meeting providers:', error);
+      // Fallback to ZOOM as default
+      const fallbackProviders = ['ZOOM'];
+      setAvailableMeetingProviders(fallbackProviders);
+      setFormData(prev => ({ ...prev, meetingProvider: 'ZOOM' }));
     }
   };
 
@@ -172,6 +246,9 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
       if (!formData.attendeeEmail.trim()) {
         newErrors.attendeeEmail = 'Attendee email is required';
       }
+      if (!formData.meetingProvider) {
+        newErrors.meetingProvider = 'Meeting provider is required';
+      }
       
       // Validate phone number format if provided
       if (formData.attendeePhone.trim() && !/^[\+]?[1-9][\d]{0,15}$/.test(formData.attendeePhone.trim().replace(/[\s\-\(\)\.]/g, ''))) {
@@ -192,6 +269,7 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
         title: formData.title || `Meeting with ${formData.attendeeName}`,
         description: formData.description,
         locationType: 'ONLINE',
+        meetingProvider: formData.meetingProvider,
         attendees: [{
           name: formData.attendeeName.trim(),
           email: formData.attendeeEmail.trim(),
@@ -212,12 +290,42 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
         timezone: getSystemTimezone(),
         selectedDate: '',
         selectedSlot: null,
+        meetingProvider: '',
       });
       onSuccess();
       onClose();
     } catch (error) {
       console.error('Failed to create booking:', error);
-      setErrors({ general: 'Failed to create booking. Please try again.' });
+      
+      // Check for specific error types
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create booking';
+      
+      if (errorMessage.includes('409') || errorMessage.includes('Conflict')) {
+        setErrors({ general: 'This time slot is no longer available. Please select a different time.' });
+        // Refresh available slots to show updated availability
+        if (formData.selectedDate && formData.meetingTypeId && formData.timezone) {
+          console.log('🔄 Refreshing slots after conflict...');
+          const refreshSlots = async () => {
+            try {
+              const url = `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${formData.meetingTypeId}&date=${formData.selectedDate}&timezone=${encodeURIComponent(formData.timezone)}&includeUnavailable=true`;
+              const response = await fetch(url);
+              if (response.ok) {
+                const data = await response.json();
+                setAvailableSlots(data.allSlots || []);
+              }
+            } catch (refreshError) {
+              console.error('Failed to refresh slots:', refreshError);
+            }
+          };
+          refreshSlots();
+        }
+      } else if (errorMessage.includes('400') || errorMessage.includes('Bad Request')) {
+        setErrors({ general: 'Invalid booking details. Please check your information and try again.' });
+      } else if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+        setErrors({ general: 'Session expired. Please refresh the page and try again.' });
+      } else {
+        setErrors({ general: 'Failed to create booking. Please try again.' });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -237,6 +345,7 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
         timezone: getSystemTimezone(),
         selectedDate: '',
         selectedSlot: null,
+        meetingProvider: '',
       });
       setErrors({});
       onClose();
@@ -303,6 +412,40 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
                 label="Timezone"
                 showCurrentTime={true}
               />
+            </div>
+          )}
+
+          {/* Meeting Provider Selection - Show after meeting type is selected */}
+          {formData.meetingTypeId && (
+            <div>
+              <label htmlFor="meetingProvider" className="block text-sm font-medium text-gray-700 mb-1">
+                Meeting Provider *
+              </label>
+              <select
+                id="meetingProvider"
+                value={formData.meetingProvider}
+                onChange={(e) => {
+                  setFormData(prev => ({ ...prev, meetingProvider: e.target.value }));
+                }}
+                className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
+                  errors.meetingProvider ? 'border-red-300' : 'border-gray-300'
+                }`}
+                disabled={isLoading}
+                required
+              >
+                <option value="">Select a meeting provider</option>
+                {availableMeetingProviders.map((provider) => (
+                  <option key={provider} value={provider}>
+                    {provider === 'GOOGLE_MEET' ? 'Google Meet' : 
+                     provider === 'MICROSOFT_TEAMS' ? 'Microsoft Teams' :
+                     provider === 'ZOOM' ? 'Zoom' :
+                     provider === 'WEBEX' ? 'Cisco Webex' :
+                     provider === 'GOTOMEETING' ? 'GoToMeeting' :
+                     provider === 'CUSTOM' ? 'Custom' : provider}
+                  </option>
+                ))}
+              </select>
+              {errors.meetingProvider && <p className="mt-1 text-sm text-red-600">{errors.meetingProvider}</p>}
             </div>
           )}
 

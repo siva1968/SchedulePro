@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -39,6 +39,55 @@ export default function CreateMeetingTypeModal({ isOpen, onClose, onSuccess }: C
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [availableProviders, setAvailableProviders] = useState<string[]>(['GOOGLE_MEET']);
+  const [defaultProvider, setDefaultProvider] = useState<string>('GOOGLE_MEET');
+
+  // Meeting provider display information
+  const getProviderInfo = (providerId: string) => {
+    const providers: Record<string, { label: string; name: string }> = {
+      'GOOGLE_MEET': { label: '🎥 Google Meet', name: 'Google Meet' },
+      'MICROSOFT_TEAMS': { label: '💼 Microsoft Teams', name: 'Microsoft Teams' },
+      'ZOOM': { label: '📹 Zoom', name: 'Zoom' },
+      'WEBEX': { label: '🌐 Cisco Webex', name: 'Cisco Webex' },
+      'GOTOMEETING': { label: '📞 GoToMeeting', name: 'GoToMeeting' },
+      'CUSTOM': { label: '⚙️ Custom', name: 'Custom' },
+    };
+    return providers[providerId] || { label: providerId, name: providerId };
+  };
+
+  // Fetch organization meeting provider configuration
+  useEffect(() => {
+    const fetchProviderConfig = async () => {
+      try {
+        const orgId = user?.organizations?.[0]?.id;
+        if (!orgId) return;
+
+        const response = await fetch(`http://localhost:3001/api/v1/organizations/${orgId}/meeting-providers`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+        });
+
+        if (response.ok) {
+          const config = await response.json();
+          setAvailableProviders(config.supportedMeetingProviders || ['GOOGLE_MEET']);
+          setDefaultProvider(config.defaultMeetingProvider || 'GOOGLE_MEET');
+          
+          // Set the default provider in form data
+          setFormData(prev => ({
+            ...prev,
+            meetingProvider: config.defaultMeetingProvider || 'GOOGLE_MEET'
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching provider config:', error);
+      }
+    };
+
+    if (isOpen) {
+      fetchProviderConfig();
+    }
+  }, [isOpen, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +128,7 @@ export default function CreateMeetingTypeModal({ isOpen, onClose, onSuccess }: C
         description: formData.description.trim() || undefined,
         duration: formData.duration,
         isActive: formData.isActive,
+        meetingProvider: formData.meetingProvider,
         organizationId: organizationId,
       };
       console.log('Creating meeting type with payload:', payload);
@@ -193,6 +243,35 @@ export default function CreateMeetingTypeModal({ isOpen, onClose, onSuccess }: C
               <option value={240}>4 hours</option>
             </select>
             {errors.duration && <p className="mt-1 text-sm text-red-600">{errors.duration}</p>}
+          </div>
+
+          {/* Meeting Provider */}
+          <div>
+            <label htmlFor="meetingProvider" className="block text-sm font-medium text-gray-700 mb-1">
+              Meeting Provider *
+            </label>
+            <select
+              id="meetingProvider"
+              value={formData.meetingProvider}
+              onChange={(e) => setFormData({ ...formData, meetingProvider: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              disabled={isLoading}
+            >
+              {availableProviders.map(providerId => {
+                const providerInfo = getProviderInfo(providerId);
+                return (
+                  <option key={providerId} value={providerId}>
+                    {providerInfo.label}
+                  </option>
+                );
+              })}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {availableProviders.length > 1 
+                ? 'Choose your preferred video conferencing platform for this meeting type'
+                : 'Meeting provider configured by your organization admin'
+              }
+            </p>
           </div>
 
           {/* Active Status */}

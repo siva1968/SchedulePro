@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ScheduleModule } from '@nestjs/schedule';
+import { APP_GUARD } from '@nestjs/core';
 
 // Core modules
 import { HealthModule } from './health/health.module';
@@ -18,6 +19,7 @@ import { MeetingTypesModule } from './meeting-types/meeting-types.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { CalendarModule } from './calendar/calendar.module';
+import { CalendarIntegrationsModule } from './calendar-integrations/calendar-integrations.module';
 import { PublicModule } from './public/public.module';
 import { EmailModule } from './email/email.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
@@ -27,6 +29,11 @@ import { databaseConfig } from './config/database.config';
 import { authConfig } from './config/auth.config';
 import { cacheConfig } from './config/cache.config';
 import { emailConfig } from './config/email.config';
+import { validateEnvironment } from './config/env.validation';
+import { EnvironmentConfigModule } from './config/environment-config.module';
+
+// Middleware
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
 @Module({
   imports: [
@@ -35,7 +42,9 @@ import { emailConfig } from './config/email.config';
       isGlobal: true,
       load: [databaseConfig, authConfig, cacheConfig, emailConfig],
       envFilePath: ['.env.local', '.env'],
+      validate: validateEnvironment,
     }),
+    EnvironmentConfigModule,
 
     // Throttling/Rate limiting
     ThrottlerModule.forRoot({
@@ -66,11 +75,24 @@ import { emailConfig } from './config/email.config';
     BookingsModule,
     AvailabilityModule,
     CalendarModule,
+    CalendarIntegrationsModule,
     PublicModule,
     EmailModule,
     SystemSettingsModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [
+    // Global rate limiting
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(RequestIdMiddleware)
+      .forRoutes('*');
+  }
+}

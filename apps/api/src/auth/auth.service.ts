@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -39,6 +39,8 @@ export interface AuthResponse {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private usersService: UsersService,
@@ -64,8 +66,8 @@ export class AuthService {
       throw new UnauthorizedException('User with this email already exists');
     }
 
-    // Hash password
-    const saltRounds = 10;
+    // Hash password with increased security
+    const saltRounds = 14; // Increased from 10 to 14 for 2025 security standards
     const passwordHash = await bcrypt.hash(registerDto.password, saltRounds);
 
     // Create user and organization in a transaction
@@ -220,10 +222,18 @@ export class AuthService {
 
   async refreshToken(refreshToken: string): Promise<AuthResponse> {
     try {
+      // Enhanced validation - verify refresh token with proper secret
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get('auth.refreshTokenSecret'),
       });
 
+      // Validate payload structure
+      if (!payload.sub || !payload.email) {
+        this.logger.warn(`Invalid token payload structure`);
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      // Get user with organizations
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
         include: {
@@ -235,10 +245,16 @@ export class AuthService {
         },
       });
 
+      // Enhanced user validation with logging
       if (!user || !user.isActive) {
+        this.logger.warn(`Refresh token attempt for inactive/missing user: ${payload.sub}`);
         throw new UnauthorizedException('Invalid refresh token');
       }
 
+      // Log successful token refresh
+      this.logger.log(`Token refreshed for user: ${user.id}`);
+
+      // Generate new tokens (implements token rotation for security)
       const tokens = await this.generateTokens(user);
 
       return {
@@ -258,6 +274,7 @@ export class AuthService {
         },
       };
     } catch (error) {
+      this.logger.error(`Refresh token error: ${error.message}`);
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -464,8 +481,8 @@ export class AuthService {
       throw new BadRequestException('Reset token has expired');
     }
 
-    // Hash new password
-    const saltRounds = 12;
+    // Hash new password with increased security
+    const saltRounds = 14; // Increased from 12 to 14 for 2025 security standards
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
     // Update user password and mark token as used

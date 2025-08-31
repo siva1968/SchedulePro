@@ -238,6 +238,8 @@ export default function CalendarIntegrationsPage() {
         return 'Microsoft Outlook';
       case CalendarProvider.CALDAV:
         return 'CalDAV';
+      case CalendarProvider.ZOOM:
+        return 'Zoom';
       default:
         return provider;
     }
@@ -316,6 +318,7 @@ export default function CalendarIntegrationsPage() {
                   <option value={CalendarProvider.GOOGLE}>Google Calendar</option>
                   <option value={CalendarProvider.OUTLOOK}>Microsoft Outlook</option>
                   <option value={CalendarProvider.CALDAV}>CalDAV</option>
+                  <option value={CalendarProvider.ZOOM}>Zoom</option>
                 </select>
               </div>
               
@@ -381,6 +384,20 @@ export default function CalendarIntegrationsPage() {
                         <path fill="currentColor" d="M7.507 11.013h9v2h-9zm0-3h9v2h-9zm0 6h9v2h-9z"/>
                       </svg>
                       {isConnecting ? 'Connecting...' : 'Connect Microsoft Outlook'}
+                    </Button>
+                  )}
+                  {formData.provider === CalendarProvider.ZOOM && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => handleOAuthConnect('zoom')}
+                      disabled={isConnecting}
+                    >
+                      <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
+                        <path fill="currentColor" d="M1.5 5.667A1.667 1.667 0 0 1 3.167 4h17.666A1.667 1.667 0 0 1 22.5 5.667v12.666A1.667 1.667 0 0 1 20.833 20H3.167A1.667 1.667 0 0 1 1.5 18.333V5.667zM12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"/>
+                      </svg>
+                      {isConnecting ? 'Connecting...' : 'Connect Zoom'}
                     </Button>
                   )}
                   {formData.provider === CalendarProvider.CALDAV && (
@@ -510,6 +527,7 @@ export default function CalendarIntegrationsPage() {
                   <option value={CalendarProvider.GOOGLE}>Google</option>
                   <option value={CalendarProvider.OUTLOOK}>Outlook</option>
                   <option value={CalendarProvider.CALDAV}>CalDAV</option>
+                  <option value={CalendarProvider.ZOOM}>Zoom</option>
                 </select>
                 <select
                   value={filterActive}

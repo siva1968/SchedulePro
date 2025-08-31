@@ -239,6 +239,12 @@ model Booking {
   externalCalendarEventId String? @map("external_calendar_event_id")
   calendarIntegrationId   String? @map("calendar_integration_id")
   
+  // Reschedule tracking
+  isRescheduled       Boolean   @default(false) @map("is_rescheduled")
+  
+  // Booking creation context
+  isHostCreated       Boolean   @default(false) @map("is_host_created")
+  
   // Timestamps
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
@@ -327,8 +333,11 @@ model CalendarIntegration {
   description       String?
   accessToken       String                @map("access_token") // Encrypted
   refreshToken      String?               @map("refresh_token") // Encrypted
+  expiresAt         DateTime?             @map("expires_at") // Token expiration
   calendarId        String?               @map("calendar_id")
   timezone          String?
+  providerAccountId String?               @map("provider_account_id") // Provider's user ID
+  providerEmail     String?               @map("provider_email") // Provider's email
   
   // CalDAV-specific fields
   serverUrl         String?               @map("server_url") // For CalDAV
@@ -498,6 +507,7 @@ enum CalendarProvider {
   GOOGLE
   OUTLOOK
   CALDAV
+  ZOOM
 }
 
 enum CalendarSyncDirection {

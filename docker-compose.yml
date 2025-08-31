@@ -3,9 +3,9 @@ services:
     image: postgres:15-alpine
     container_name: schedulepro-postgres
     environment:
-      POSTGRES_DB: schedulepro
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -47,33 +47,38 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/schedulepro
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - CALENDAR_ENCRYPTION_KEY=${CALENDAR_ENCRYPTION_KEY}
       - API_PORT=3001
       - API_URL=http://localhost:3001
       - FRONTEND_URL=http://localhost:3000
       # Email Configuration
-      - SMTP_HOST=mailhog
-      - SMTP_PORT=1025
-      - SMTP_FROM=noreply@schedulepro.com
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-SENDGRID}
+      - SMTP_FROM=${SMTP_FROM:-noreply@schedulepro.com}
       # SendGrid Configuration
-      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
-      - SENDGRID_FROM_EMAIL=support@equitybrix.com
-      - SENDGRID_FROM_NAME=Equitybrix Support
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
+      - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-noreply@schedulepro.com}
+      - SENDGRID_FROM_NAME=${SENDGRID_FROM_NAME:-SchedulePro}
       # ZeptoMail Configuration
-      - ZEPTO_API_KEY=your-zepto-api-key
-      - ZEPTO_API_URL=https://api.zeptomail.in/v1.1/email
-      - ZEPTO_FROM_EMAIL=support@equitybrix.com
-      - ZEPTO_FROM_NAME=Equitybrix Support
+      - ZEPTO_API_KEY=${ZEPTO_API_KEY:-}
+      - ZEPTO_API_URL=${ZEPTO_API_URL:-https://api.zeptomail.in/v1.1/email}
+      - ZEPTO_FROM_EMAIL=${ZEPTO_FROM_EMAIL:-noreply@schedulepro.com}
+      - ZEPTO_FROM_NAME=${ZEPTO_FROM_NAME:-SchedulePro}
       # OAuth Configuration
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
-      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
-      # Encryption
-      - ENCRYPTION_KEY=schedulepro-calendar-encrypt-key32
-      - CALENDAR_ENCRYPTION_KEY=schedulepro-calendar-encrypt-key32
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+      # Encryption Keys (32+ characters)
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-your-32-character-encryption-key}
+      - CALENDAR_ENCRYPTION_KEY=${CALENDAR_ENCRYPTION_KEY:-calendar-encryption-key-32-char!}
+      # Rate Limiting
+      - THROTTLE_TTL=60
+      - THROTTLE_LIMIT=60
     depends_on:
       postgres:
         condition: service_healthy

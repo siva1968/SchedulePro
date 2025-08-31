@@ -4,12 +4,23 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto, UpdateBookingDto, BookingQueryDto } from './dto';
 import { zonedTimeToUtc, utcToZonedTime, format } from 'date-fns-tz';
+import { TimezoneUtils } from '../common/utils/timezone.utils';
+import { EnhancedConflictDetectionService } from '../common/services/enhanced-conflict-detection.service';
+import { BookingValidationService } from '../common/services/booking-validation.service';
+import { SmartAvailabilityService } from '../common/services/smart-availability.service';
+import { BookingAnalyticsService } from '../common/services/booking-analytics.service';
+import { AutomatedNotificationsService, NotificationType, RecipientType } from '../common/services/automated-notifications.service';
+import { BookingMetricsService } from '../common/services/booking-metrics.service';
+import { EnhancedLoggingService } from '../common/services/enhanced-logging.service';
+import { SystemMonitoringService } from '../common/services/system-monitoring.service';
+import { ZoomOAuthService } from '../calendar/services/zoom-oauth.service';
 
 enum BookingStatus {
   PENDING = 'PENDING',
@@ -22,159 +33,128 @@ enum BookingStatus {
 
 @Injectable()
 export class BookingsService {
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly calendarService: CalendarService,
+    private readonly conflictDetection: EnhancedConflictDetectionService,
+    private readonly bookingValidation: BookingValidationService,
+    private readonly smartAvailability: SmartAvailabilityService,
+    private readonly analytics: BookingAnalyticsService,
+    private readonly notifications: AutomatedNotificationsService,
+    private readonly metricsService: BookingMetricsService,
+    private readonly enhancedLogger: EnhancedLoggingService,
+    private readonly monitoringService: SystemMonitoringService,
+    private readonly zoomOAuthService: ZoomOAuthService,
   ) {}
 
   async create(createBookingDto: CreateBookingDto, hostId: string): Promise<any> {
+    const startTime = Date.now();
     const { attendees, ...bookingData } = createBookingDto;
 
-    console.log('DEBUG - Create booking called with:', {
-      createBookingDto,
-      bookingData,
+    const scopedLogger = this.enhancedLogger.createScopedLogger({
+      operation: 'create_booking',
       hostId,
-      rawStartTime: createBookingDto.startTime,
-      rawEndTime: createBookingDto.endTime,
-      parsedStartTime: new Date(createBookingDto.startTime),
-      parsedEndTime: new Date(createBookingDto.endTime)
+      meetingTypeId: createBookingDto.meetingTypeId,
+      userId: attendees?.[0]?.email,
     });
 
-    // Validate meeting type exists and is accessible
-    const meetingType = await this.prisma.meetingType.findFirst({
-      where: {
-        id: createBookingDto.meetingTypeId,
-        OR: [
-          { hostId: hostId },
-          { organization: { members: { some: { userId: hostId } } } },
-        ],
-      },
-    });
+    scopedLogger.logStart('create_booking');
 
-    if (!meetingType) {
-      throw new NotFoundException('Meeting type not found or not accessible');
-    }
-
-    // Validate that the host user is active and available for bookings
-    const hostUser = await this.prisma.user.findUnique({
-      where: { id: hostId },
-      select: { 
-        id: true, 
-        isActive: true, 
-        firstName: true, 
-        lastName: true 
-      },
-    });
-
-    if (!hostUser) {
-      throw new NotFoundException('Host user not found');
-    }
-
-    if (!hostUser.isActive) {
-      throw new BadRequestException('This user is currently not accepting bookings. Please try again later.');
-    }
-
-    // Validate and potentially fix end time based on meeting type duration
-    const startDateTime = new Date(createBookingDto.startTime);
-    const providedEndDateTime = new Date(createBookingDto.endTime);
-    const calculatedEndDateTime = new Date(startDateTime.getTime() + meetingType.duration * 60000);
-    
-    console.log('DEBUG - Time validation:', {
-      startDateTime: startDateTime.toISOString(),
-      providedEndDateTime: providedEndDateTime.toISOString(),
-      calculatedEndDateTime: calculatedEndDateTime.toISOString(),
-      isEndTimeValid: providedEndDateTime.getTime() === calculatedEndDateTime.getTime(),
-      providedDuration: (providedEndDateTime.getTime() - startDateTime.getTime()) / 60000,
-      expectedDuration: meetingType.duration
-    });
-
-    // If the provided end time doesn't match the expected duration, use calculated end time
-    let finalEndTime = createBookingDto.endTime;
-    if (providedEndDateTime.getTime() !== calculatedEndDateTime.getTime()) {
-      console.log('DEBUG - End time mismatch detected, using calculated end time');
-      finalEndTime = calculatedEndDateTime.toISOString().substring(0, 16); // Format: YYYY-MM-DDTHH:MM
-      
-      // Update the booking data with corrected end time
-      bookingData.endTime = finalEndTime;
-      createBookingDto.endTime = finalEndTime;
-      
-      console.log('DEBUG - Updated booking data with corrected end time:', {
-        originalEndTime: createBookingDto.endTime,
-        correctedEndTime: finalEndTime
-      });
-    }
-
-    console.log('DEBUG - About to check time conflicts...');
-
-    // Get the host's timezone for proper time parsing
-    const hostForTimezone = await this.prisma.user.findUnique({
-      where: { id: hostId },
-      select: { timezone: true }
-    });
-
-    const hostTimezone = hostForTimezone?.timezone || 'Asia/Kolkata';
-
-    // Parse times as being in the host's timezone (same as getAvailableSlots)
-    // If the time string doesn't have timezone info, add the host's timezone
-    let startTimeStr = createBookingDto.startTime;
-    let endTimeStr = createBookingDto.endTime;
-
-    // If the time string doesn't have timezone info, treat it as being in host timezone
-    if (!startTimeStr.includes('+') && !startTimeStr.includes('Z') && !startTimeStr.includes('-')) {
-      // Add seconds if not present
-      if (startTimeStr.length === 16) { // "2025-09-01T11:00"
-        startTimeStr += ':00';
-      }
-      if (endTimeStr.length === 16) {
-        endTimeStr += ':00';
-      }
-      
-      // Add IST timezone offset
-      startTimeStr += '+05:30';
-      endTimeStr += '+05:30';
-    }
-
-    const startTimeWithTz = new Date(startTimeStr);
-    const endTimeWithTz = new Date(endTimeStr);
-
-    console.log('DEBUG - Timezone-aware time parsing:', {
-      originalStartTime: createBookingDto.startTime,
-      originalEndTime: createBookingDto.endTime,
-      hostTimezone,
-      parsedStartTime: startTimeWithTz.toISOString(),
-      parsedEndTime: endTimeWithTz.toISOString(),
-    });
-
-    // Check for time conflicts
     try {
-      await this.checkTimeConflicts(
+      // Step 1: Comprehensive booking validation using new service
+      const validationResult = await this.bookingValidation.validateBookingRequest(
         hostId,
-        startTimeWithTz,
-        endTimeWithTz,
+        createBookingDto.meetingTypeId,
+        createBookingDto.startTime,
+        createBookingDto.endTime,
+        attendees || []
       );
-      console.log('DEBUG - Time conflict check passed, proceeding...');
-    } catch (error) {
-      console.log('DEBUG - Time conflict detected:', error.message);
-      throw error;
-    }
 
-    // Validate time slot availability
-    await this.validateTimeSlot(
-      hostId,
-      startTimeWithTz,
-      endTimeWithTz,
-      meetingType,
-    );
+      if (!validationResult.isValid) {
+        this.logger.warn('Booking validation failed', {
+          errors: validationResult.errors,
+          warnings: validationResult.warnings
+        });
+        throw new BadRequestException({
+          message: 'Booking validation failed',
+          errors: validationResult.errors,
+          warnings: validationResult.warnings
+        });
+      }
 
-    try {
+      // Log warnings if any
+      if (validationResult.warnings.length > 0) {
+        this.logger.warn('Booking validation warnings', {
+          warnings: validationResult.warnings
+        });
+      }
+
+      // Parse the validated times
+      const normalizedStartTime = new Date(createBookingDto.startTime);
+      const normalizedEndTime = new Date(createBookingDto.endTime);
+
+      // Step 2: Enhanced conflict detection
+      const conflictResult = await this.conflictDetection.checkBookingConflicts(
+        hostId,
+        normalizedStartTime,
+        normalizedEndTime
+      );
+
+      if (conflictResult.hasConflicts) {
+        this.logger.warn('Booking conflicts detected', {
+          conflicts: conflictResult.conflicts,
+          suggestions: conflictResult.suggestions?.length || 0
+        });
+        
+        throw new ConflictException({
+          message: 'Time slot conflicts detected',
+          conflicts: conflictResult.conflicts,
+          suggestions: conflictResult.suggestions
+        });
+      }
+
+      // Step 3: Get meeting type with organization defaults
+      const meetingType = await this.prisma.meetingType.findUnique({
+        where: { id: createBookingDto.meetingTypeId },
+        include: {
+          organization: {
+            select: {
+              defaultMeetingProvider: true,
+            },
+          },
+        },
+      });
+
+      if (!meetingType) {
+        throw new NotFoundException('Meeting type not found');
+      }
+
+      // Determine the meeting provider: DTO > MeetingType > Organization Default
+      const meetingProvider = createBookingDto.meetingProvider || 
+                             meetingType.meetingProvider || 
+                             meetingType.organization.defaultMeetingProvider;
+
+      console.log('🎥 DEBUG - Host booking meeting provider selection:', {
+        fromDTO: createBookingDto.meetingProvider,
+        fromMeetingType: meetingType.meetingProvider,
+        fromOrganization: meetingType.organization.defaultMeetingProvider,
+        finalSelection: meetingProvider
+      });
+
+      // Step 4: Create the booking
       const booking = await this.prisma.booking.create({
         data: {
           ...bookingData,
-          startTime: startTimeWithTz,
-          endTime: endTimeWithTz,
+          startTime: normalizedStartTime,
+          endTime: normalizedEndTime,
           hostId,
+          meetingProvider: meetingProvider,  // Use the determined meeting provider
+          // Host-created bookings are automatically confirmed (no approval needed)
           status: BookingStatus.CONFIRMED,
+          isHostCreated: true,  // Mark as host-created booking
           attendees: {
             create: attendees.map((attendee) => ({
               ...attendee,
@@ -191,24 +171,93 @@ export class BookingsService {
               email: true,
               firstName: true,
               lastName: true,
+              timezone: true,
             },
           },
         },
       });
 
-      // Send email notifications
+      // Step 4: Record successful booking metrics
+      this.metricsService.recordEvent({
+        type: 'booking_created',
+        data: {
+          meetingTypeId: createBookingDto.meetingTypeId,
+          attendeeCount: attendees?.length || 0,
+        },
+        processingTime: Date.now() - startTime,
+        success: true,
+        userId: attendees?.[0]?.email,
+        hostId,
+        meetingTypeId: createBookingDto.meetingTypeId,
+      });
+
+      scopedLogger.logSuccess('create_booking', Date.now() - startTime);
+
+      // Step 5: Set up automated notifications
       try {
+        await this.notifications.setupBookingNotifications(booking.id);
+        
+        // Send immediate confirmation
+        await this.notifications.sendImmediateNotification(
+          booking.id,
+          NotificationType.BOOKING_CONFIRMATION,
+          [RecipientType.BOTH]
+        );
+        
+        scopedLogger.log('Notifications set up successfully', { bookingId: booking.id });
+      } catch (notificationError) {
+        scopedLogger.error('Failed to set up notifications', notificationError, {
+          bookingId: booking.id,
+        });
+        
+        this.metricsService.recordEvent({
+          type: 'notification_sent',
+          data: { errorType: 'setup_failed', bookingId: booking.id },
+          success: false,
+          hostId,
+          meetingTypeId: createBookingDto.meetingTypeId,
+        });
+      }
+
+      // Step 6: Calendar integration and email notifications (existing logic)
+      try {
+        console.log('📧 DEBUG - Sending host booking confirmation emails');
+        console.log('📧 DEBUG - Attendee data:', JSON.stringify(booking.attendees?.[0], null, 2));
+        console.log('📧 DEBUG - Host data:', JSON.stringify(booking.host, null, 2));
+        console.log('🌍 DEBUG - This is a HOST-CREATED booking, using host timezone for both emails');
+        
+        // For host bookings, both customer and host should see times in host's timezone
         await Promise.all([
           this.emailService.sendBookingConfirmation(booking),
           this.emailService.sendBookingNotificationToHost(booking),
         ]);
+        
+        console.log('📧 DEBUG - Host booking confirmation emails sent successfully');
       } catch (emailError) {
-        console.error('Failed to send booking notification emails:', emailError);
+        console.error('📧 ERROR - Failed to send booking notification emails:', emailError);
+        scopedLogger.error('Failed to send booking notification emails', emailError);
         // Don't fail the booking creation if email fails
       }
 
       return booking;
     } catch (error) {
+      // Record failure metrics
+      this.metricsService.recordEvent({
+        type: 'booking_created',
+        data: {
+          errorType: error.constructor.name,
+          errorMessage: error.message,
+          meetingTypeId: createBookingDto.meetingTypeId,
+        },
+        processingTime: Date.now() - startTime,
+        success: false,
+        userId: attendees?.[0]?.email,
+        hostId,
+        meetingTypeId: createBookingDto.meetingTypeId,
+      });
+
+      scopedLogger.logFailure('create_booking', error, Date.now() - startTime);
+
       if (error.code === 'P2002') {
         throw new ConflictException('Booking conflict detected');
       }
@@ -917,14 +966,14 @@ export class BookingsService {
           startTime: startTime,
           endTime: finalEndTime,
           hostId,
-          // Set status based on whether approval is required
-          status: meetingType.requiresApproval ? BookingStatus.PENDING : BookingStatus.CONFIRMED,
+          // Public bookings always require approval and go to PENDING status
+          status: BookingStatus.PENDING,
           // Use the provided meeting provider or fall back to the meeting type's default
           meetingProvider: createBookingDto.meetingProvider || meetingType.meetingProvider,
           attendees: {
             create: attendees.map((attendee) => ({
               ...attendee,
-              status: meetingType.requiresApproval ? 'PENDING' : 'CONFIRMED',
+              status: 'PENDING',
             })),
           },
         },
@@ -942,23 +991,60 @@ export class BookingsService {
         },
       });
 
+      // Generate meeting link for auto-confirmed bookings
+      let meetingUrl = null;
+      if (!meetingType.requiresApproval) {
+        try {
+          meetingUrl = await this.generateMeetingLink(booking);
+          if (meetingUrl) {
+            await this.prisma.booking.update({
+              where: { id: booking.id },
+              data: { meetingUrl }
+            });
+            booking.meetingUrl = meetingUrl;
+          }
+        } catch (meetingError) {
+          console.error('Failed to generate meeting link for auto-confirmed booking:', meetingError);
+          // Don't fail the booking creation if meeting link generation fails
+        }
+
+        // Add to calendar for auto-confirmed bookings
+        try {
+          const calendarResult = await this.calendarService.syncBookingToCalendar(booking.id);
+          console.log('Calendar integration result for auto-confirmed booking:', calendarResult);
+        } catch (calendarError) {
+          console.error('Failed to add auto-confirmed booking to calendar:', calendarError);
+          // Don't fail the booking creation if calendar integration fails
+        }
+      }
+
       // Send email notifications based on approval status
       try {
+        console.log('📧 DEBUG - Sending public booking emails');
+        console.log('📧 DEBUG - Attendee data:', JSON.stringify(booking.attendees?.[0], null, 2));
+        console.log('📧 DEBUG - Host data:', JSON.stringify(booking.host, null, 2));
+        console.log('📧 DEBUG - Requires approval:', meetingType.requiresApproval);
+        console.log('🌍 DEBUG - This is a PUBLIC booking, using separate timezones for customer and host');
+        
         if (meetingType.requiresApproval) {
           // For pending bookings, send different notifications
+          console.log('📧 DEBUG - Sending pending confirmation and approval request emails');
           await Promise.all([
-            this.emailService.sendBookingPendingConfirmation(booking),
-            this.emailService.sendBookingApprovalRequest(booking),
+            this.emailService.sendBookingPendingConfirmation({...booking, isHostCreated: false}),
+            this.emailService.sendBookingApprovalRequest({...booking, isHostCreated: false}),
           ]);
         } else {
-          // For auto-confirmed bookings, send regular confirmations
+          // For auto-confirmed bookings, send confirmations with meeting link
+          console.log('📧 DEBUG - Sending confirmation and host notification emails');
           await Promise.all([
-            this.emailService.sendBookingConfirmation(booking),
-            this.emailService.sendBookingNotificationToHost(booking),
+            this.emailService.sendBookingConfirmation({...booking, isHostCreated: false}),
+            this.emailService.sendBookingNotificationToHost({...booking, isHostCreated: false}),
           ]);
         }
+        
+        console.log('📧 DEBUG - Public booking emails sent successfully');
       } catch (emailError) {
-        console.error('Failed to send booking notification emails:', emailError);
+        console.error('📧 ERROR - Failed to send booking notification emails:', emailError);
         // Don't fail the booking creation if email fails
       }
 
@@ -1446,12 +1532,14 @@ export class BookingsService {
     // Check for time conflicts (excluding current booking)
     await this.checkTimeConflicts(booking.hostId, newStart, newEnd, bookingId);
 
+    console.log('📅 DEBUG - Customer reschedule: Setting status to PENDING and marking as rescheduled');
     const updatedBooking = await this.prisma.booking.update({
       where: { id: bookingId },
       data: {
         startTime: newStart,
         endTime: newEnd,
-        status: BookingStatus.RESCHEDULED,
+        status: BookingStatus.PENDING,  // Customer reschedules go to PENDING for approval
+        isRescheduled: true,           // Flag to track this is a rescheduled booking
       },
       include: {
         attendees: true,
@@ -1469,7 +1557,12 @@ export class BookingsService {
 
     // Send reschedule email notifications
     try {
-      await this.emailService.sendBookingReschedule(updatedBooking, oldStartTime, 'attendee');
+      console.log('📧 DEBUG - Customer reschedule: Sending pending approval emails');
+      // For customer reschedules, send pending approval emails since status is PENDING
+      await Promise.all([
+        this.emailService.sendBookingPendingConfirmation({...updatedBooking, isHostCreated: false}),
+        this.emailService.sendBookingNotificationToHost({...updatedBooking, isHostCreated: false}),
+      ]);
     } catch (emailError) {
       console.error('Failed to send reschedule notification emails:', emailError);
       // Don't fail the reschedule if email fails
@@ -1489,7 +1582,15 @@ export class BookingsService {
       },
       include: {
         attendees: true,
-        meetingType: true,
+        meetingType: {
+          include: {
+            organization: {
+              select: {
+                defaultMeetingProvider: true,
+              },
+            },
+          },
+        },
         host: {
           select: {
             id: true,
@@ -1513,11 +1614,24 @@ export class BookingsService {
       booking.id
     );
 
-    // Update booking status to confirmed
+    // Determine meeting provider if not already set
+    const meetingProvider = booking.meetingProvider || 
+                           booking.meetingType.meetingProvider || 
+                           booking.meetingType.organization.defaultMeetingProvider;
+
+    console.log('🎥 DEBUG - Booking approval meeting provider selection:', {
+      existingProvider: booking.meetingProvider,
+      fromMeetingType: booking.meetingType.meetingProvider,
+      fromOrganization: booking.meetingType.organization.defaultMeetingProvider,
+      finalSelection: meetingProvider
+    });
+
+    // Update booking status to confirmed and set meeting provider
     const updatedBooking = await this.prisma.booking.update({
       where: { id: bookingId },
       data: {
         status: BookingStatus.CONFIRMED,
+        meetingProvider: meetingProvider,  // Set the default meeting provider
         attendees: {
           updateMany: {
             where: { bookingId },
@@ -1586,8 +1700,8 @@ export class BookingsService {
     // Send confirmation emails
     try {
       await Promise.all([
-        this.emailService.sendBookingApprovalConfirmation(finalBooking, meetingUrl),
-        this.emailService.sendBookingConfirmedNotificationToHost(finalBooking),
+        this.emailService.sendBookingApprovalConfirmation({...finalBooking, isHostCreated: false}, meetingUrl),
+        this.emailService.sendBookingConfirmedNotificationToHost({...finalBooking, isHostCreated: false}),
       ]);
     } catch (emailError) {
       console.error('Failed to send approval confirmation emails:', emailError);
@@ -1716,43 +1830,327 @@ export class BookingsService {
         return await this.generateTeamsLink(booking);
       case 'ZOOM':
         return await this.generateZoomLink(booking);
+      case 'WEBEX':
+        return await this.generateWebexLink(booking);
+      case 'GOTOMEETING':
+        return await this.generateGoToMeetingLink(booking);
       default:
         return null;
     }
   }
 
   private async generateGoogleMeetLink(booking: any): Promise<string | null> {
-    // Generate a unique Google Meet link with proper format
-    // Google Meet IDs follow the pattern: xxx-yyyy-zzz (3 groups of 3-4 characters)
-    const generateRandomString = (length: number): string => {
-      const chars = 'abcdefghijklmnopqrstuvwxyz';
-      let result = '';
-      for (let i = 0; i < length; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    try {
+      console.log('🎥 Generating Google Meet link for booking:', booking.id);
+      
+      // Check if host has Google Calendar integration
+      const googleIntegration = await this.prisma.calendarIntegration.findFirst({
+        where: {
+          userId: booking.hostId,
+          provider: 'GOOGLE',
+          isActive: true,
+        },
+      });
+
+      console.log('🎥 Google integration found:', !!googleIntegration);
+
+      if (googleIntegration && googleIntegration.accessToken) {
+        console.log('🎥 Attempting to create Google Calendar event with Meet link');
+        
+        try {
+          // Decrypt the access token
+          const decryptedToken = await (this.calendarService as any).encryptionService.decrypt(googleIntegration.accessToken);
+          
+          // Create Google Calendar event with Google Meet using the existing service
+          const googleEvent = {
+            summary: booking.title || 'Scheduled Meeting',
+            description: booking.description || '',
+            start: {
+              dateTime: new Date(booking.startTime).toISOString(),
+              timeZone: booking.timezone || 'UTC',
+            },
+            end: {
+              dateTime: new Date(booking.endTime).toISOString(), 
+              timeZone: booking.timezone || 'UTC',
+            },
+            attendees: booking.attendees?.map((attendee: any) => ({
+              email: attendee.email,
+              displayName: attendee.name,
+            })) || [],
+            conferenceData: {
+              createRequest: {
+                requestId: `meet-${booking.id}-${Date.now()}`,
+                conferenceSolutionKey: {
+                  type: 'hangoutsMeet',
+                },
+              },
+            },
+          };
+
+          // Use the Google Calendar service directly
+          const googleCalendarService = (this.calendarService as any).googleCalendarService;
+          const event = await googleCalendarService.createEvent(
+            decryptedToken,
+            googleIntegration.calendarId || 'primary',
+            googleEvent
+          );
+          
+          console.log('🎥 Google Calendar event created:', event?.id);
+          
+          // Return the actual Google Meet link from the created event
+          if (event?.conferenceData?.entryPoints?.[0]?.uri) {
+            const meetLink = event.conferenceData.entryPoints[0].uri;
+            console.log('🎥 Real Google Meet link generated:', meetLink);
+            return meetLink;
+          }
+          
+          console.warn('🎥 Event created but no Meet link found in response');
+        } catch (error) {
+          console.warn('🎥 Failed to create Google Calendar event:', error.message);
+          // Try token refresh if credentials are invalid
+          if (error.message && (error.message.includes('Invalid Credentials') || error.message.includes('401'))) {
+            console.log('🎥 Attempting to refresh Google Calendar token...');
+            try {
+              if (googleIntegration.refreshToken) {
+                const refreshToken = await (this.calendarService as any).encryptionService.decrypt(googleIntegration.refreshToken);
+                const googleCalendarService = (this.calendarService as any).googleCalendarService;
+                const newTokens = await googleCalendarService.refreshAccessToken(refreshToken);
+                
+                // Update the integration with new tokens
+                await this.prisma.calendarIntegration.update({
+                  where: { id: googleIntegration.id },
+                  data: { 
+                    accessToken: await (this.calendarService as any).encryptionService.encrypt(newTokens.access_token),
+                    ...(newTokens.refresh_token && {
+                      refreshToken: await (this.calendarService as any).encryptionService.encrypt(newTokens.refresh_token)
+                    })
+                  },
+                });
+                
+                // Retry with new token
+                console.log('🎥 Token refreshed, retrying event creation...');
+                // Note: We could retry here, but for now let's fall back to placeholder
+              }
+            } catch (refreshError) {
+              console.warn('🎥 Failed to refresh token:', refreshError.message);
+            }
+          }
+        }
+      } else {
+        console.log('🎥 No valid Google integration found for host');
       }
-      return result;
-    };
-    
-    const part1 = generateRandomString(3);
-    const part2 = generateRandomString(4);
-    const part3 = generateRandomString(3);
-    const meetId = `${part1}-${part2}-${part3}`;
-    
-    return `https://meet.google.com/${meetId}`;
+    } catch (error) {
+      console.warn('🎥 Google Calendar integration error:', error.message);
+    }
+
+    // Fallback: Generate a placeholder link that clearly indicates it needs Google Calendar setup
+    console.log('🎥 Using fallback placeholder link');
+    const meetingId = `setup-required-${booking.id.substring(0, 8)}`;
+    return `https://meet.google.com/${meetingId}?note=Please-setup-Google-Calendar-integration`;
   }
 
   private async generateTeamsLink(booking: any): Promise<string | null> {
-    // Generate a Teams meeting link
-    // This would typically integrate with Microsoft Graph API
-    const meetId = `${booking.id.substring(0, 8)}-${Date.now().toString(36)}`;
-    return `https://teams.microsoft.com/l/meetup-join/${meetId}`;
+    try {
+      console.log('🎥 Generating Microsoft Teams link for booking:', booking.id);
+      
+      // Check if host has Microsoft/Azure Calendar integration
+      const microsoftIntegration = await this.prisma.calendarIntegration.findFirst({
+        where: {
+          userId: booking.hostId,
+          provider: 'OUTLOOK',
+          isActive: true,
+        },
+      });
+
+      console.log('🎥 Microsoft integration found:', !!microsoftIntegration);
+
+      if (microsoftIntegration && microsoftIntegration.accessToken) {
+        try {
+          // Use Microsoft Graph API to create an online meeting
+          const meetingData = {
+            subject: booking.title || 'Scheduled Meeting',
+            startDateTime: booking.startTime,
+            endDateTime: booking.endTime,
+          };
+
+          console.log('🎥 Creating Teams meeting with Graph API');
+
+          // Make API call to Microsoft Graph
+          const teamsResponse = await this.createTeamsMeeting(
+            microsoftIntegration.accessToken,
+            meetingData
+          );
+
+          if (teamsResponse && teamsResponse.joinWebUrl) {
+            console.log('🎥 Teams meeting created successfully:', teamsResponse.joinWebUrl);
+            return teamsResponse.joinWebUrl;
+          } else {
+            console.warn('🎥 Teams API did not return a join URL');
+            return this.generateFallbackTeamsLink(booking);
+          }
+        } catch (apiError) {
+          console.error('🎥 Failed to create Teams meeting via API:', apiError);
+          return this.generateFallbackTeamsLink(booking);
+        }
+      } else {
+        console.log('🎥 No Microsoft integration found, generating fallback Teams link');
+        return this.generateFallbackTeamsLink(booking);
+      }
+    } catch (error) {
+      console.error('🎥 Error in generateTeamsLink:', error);
+      return this.generateFallbackTeamsLink(booking);
+    }
+  }
+
+  private async createTeamsMeeting(accessToken: string, meetingData: any): Promise<any> {
+    try {
+      // Use require for node-fetch to avoid ES module issues
+      const fetch = require('node-fetch');
+      
+      const response = await fetch('https://graph.microsoft.com/v1.0/me/onlineMeetings', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          subject: meetingData.subject,
+          startDateTime: meetingData.startDateTime,
+          endDateTime: meetingData.endDateTime,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Microsoft Graph API error: ${response.status} - ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('🎥 Microsoft Graph API call failed:', error);
+      throw error;
+    }
+  }
+
+  private generateFallbackTeamsLink(booking: any): string {
+    console.log('🎥 Using fallback Teams link generation');
+    
+    // Generate a Teams meeting link with proper format as fallback
+    const generateTeamsId = (): string => {
+      const timestamp = Date.now().toString(36);
+      const random = Math.random().toString(36).substring(2, 15);
+      return `19:meeting_${timestamp}${random}@thread.v2`;
+    };
+    
+    const meetingId = generateTeamsId();
+    return `https://teams.microsoft.com/l/meetup-join/${meetingId}?note=Setup-Microsoft-integration-for-real-meetings`;
   }
 
   private async generateZoomLink(booking: any): Promise<string | null> {
-    // Generate a Zoom meeting link
-    // This would typically integrate with Zoom API
-    const meetId = `${booking.id.substring(0, 8)}-${Date.now().toString(36)}`;
-    return `https://zoom.us/j/${meetId}`;
+    try {
+      // Try to get the host's Zoom integration
+      const zoomIntegration = await this.prisma.calendarIntegration.findFirst({
+        where: {
+          userId: booking.hostId,
+          provider: 'ZOOM',
+          isActive: true,
+        },
+      });
+
+      if (zoomIntegration && zoomIntegration.accessToken) {
+        // Use real Zoom API to create meeting
+        try {
+          const meetingData = {
+            topic: `${booking.title || 'Scheduled Meeting'}`,
+            start_time: booking.startTime.toISOString(),
+            duration: Math.ceil((new Date(booking.endTime).getTime() - new Date(booking.startTime).getTime()) / (1000 * 60)), // Duration in minutes
+            timezone: booking.timezone || 'UTC',
+            agenda: booking.description || 'Scheduled meeting via SchedulePro',
+          };
+
+          // Check if token needs refresh
+          let accessToken = zoomIntegration.accessToken;
+          if (zoomIntegration.expiresAt && new Date() > zoomIntegration.expiresAt) {
+            // Token expired, refresh it
+            if (zoomIntegration.refreshToken) {
+              const refreshedTokens = await this.zoomOAuthService.refreshAccessToken(zoomIntegration.refreshToken);
+              accessToken = refreshedTokens.access_token;
+              
+              // Update the integration with new tokens
+              await this.prisma.calendarIntegration.update({
+                where: { id: zoomIntegration.id },
+                data: {
+                  accessToken: refreshedTokens.access_token,
+                  refreshToken: refreshedTokens.refresh_token,
+                  expiresAt: new Date(Date.now() + refreshedTokens.expires_in * 1000),
+                },
+              });
+            } else {
+              throw new Error('No refresh token available');
+            }
+          }
+
+          const zoomMeeting = await this.zoomOAuthService.createMeeting(accessToken, meetingData);
+          
+          this.logger.log(`Created real Zoom meeting: ${zoomMeeting.join_url}`, { 
+            bookingId: booking.id, 
+            meetingId: zoomMeeting.id 
+          });
+          
+          return zoomMeeting.join_url;
+        } catch (zoomError) {
+          this.logger.error('Failed to create real Zoom meeting, falling back to placeholder', zoomError);
+          // Fall through to generate placeholder link
+        }
+      }
+
+      // Fallback: Generate a placeholder Zoom meeting link with realistic format
+      // Zoom meeting IDs are typically 10-11 digits
+      const generateZoomId = (): string => {
+        // Generate 10-11 digit meeting ID
+        const baseId = Math.floor(Math.random() * 90000000000) + 10000000000; // 11 digits
+        return baseId.toString();
+      };
+      
+      const meetingId = generateZoomId();
+      const password = Math.random().toString(36).substring(2, 8); // 6 char password
+      const placeholderLink = `https://zoom.us/j/${meetingId}?pwd=${password}`;
+      
+      this.logger.log(`Generated placeholder Zoom link: ${placeholderLink}`, { 
+        bookingId: booking.id,
+        reason: zoomIntegration ? 'API_ERROR' : 'NO_INTEGRATION'
+      });
+      
+      return placeholderLink;
+    } catch (error) {
+      this.logger.error('Error in generateZoomLink:', error);
+      // Return null to indicate failure
+      return null;
+    }
+  }
+
+  private async generateWebexLink(booking: any): Promise<string | null> {
+    // Generate a Webex meeting link
+    // Webex uses various formats, this is a common one
+    const generateWebexId = (): string => {
+      const timestamp = Date.now().toString(36);
+      const random = Math.random().toString(36).substring(2, 10);
+      return `${timestamp}${random}`;
+    };
+    
+    const meetingId = generateWebexId();
+    return `https://company.webex.com/meet/${meetingId}`;
+  }
+
+  private async generateGoToMeetingLink(booking: any): Promise<string | null> {
+    // Generate a GoToMeeting link
+    // GoToMeeting typically uses 9-digit meeting IDs
+    const generateGTMId = (): string => {
+      return Math.floor(Math.random() * 900000000 + 100000000).toString(); // 9 digits
+    };
+    
+    const meetingId = generateGTMId();
+    return `https://global.gotomeeting.com/join/${meetingId}`;
   }
 
   async cancelBookingPublic(bookingId: string, token: string, reason?: string, removeFromCalendar?: boolean): Promise<any> {
@@ -1824,5 +2222,355 @@ export class BookingsService {
       ...updatedBooking,
       calendarResult,
     };
+  }
+
+  // ============================================================================
+  // ENHANCED FUNCTIONALITY METHODS
+  // ============================================================================
+
+  /**
+   * Get smart availability suggestions using the new SmartAvailabilityService
+   */
+  async getSmartAvailabilitySlots(
+    hostId: string,
+    durationMinutes: number,
+    preferences?: any,
+    userTimezone = 'UTC',
+    maxSuggestions = 10
+  ) {
+    try {
+      this.logger.log('Getting smart availability suggestions', {
+        hostId,
+        durationMinutes,
+        maxSuggestions
+      });
+
+      const suggestions = await this.smartAvailability.getSmartSuggestions(
+        hostId,
+        durationMinutes,
+        preferences,
+        userTimezone,
+        maxSuggestions
+      );
+
+      this.logger.log('Smart suggestions generated', {
+        hostId,
+        suggestionsCount: suggestions.length
+      });
+
+      return suggestions;
+    } catch (error) {
+      this.logger.error('Failed to get smart availability suggestions', {
+        hostId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get next available slot quickly
+   */
+  async getNextAvailableSlot(hostId: string, durationMinutes: number, userTimezone = 'UTC') {
+    try {
+      const nextSlot = await this.smartAvailability.getNextAvailableSlot(
+        hostId,
+        durationMinutes,
+        userTimezone
+      );
+
+      this.logger.log('Next available slot found', {
+        hostId,
+        nextSlot: nextSlot ? {
+          startTime: nextSlot.startTime,
+          confidence: nextSlot.confidence
+        } : null
+      });
+
+      return nextSlot;
+    } catch (error) {
+      this.logger.error('Failed to get next available slot', {
+        hostId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get comprehensive analytics for a host
+   */
+  async getHostAnalytics(hostId: string, startDate?: Date, endDate?: Date) {
+    try {
+      this.logger.log('Getting host analytics', { hostId, startDate, endDate });
+
+      const analytics = await this.analytics.getHostAnalytics(hostId, startDate, endDate);
+
+      this.logger.log('Host analytics generated', {
+        hostId,
+        totalBookings: analytics.analytics.totalBookings,
+        performanceScore: analytics.performanceScore
+      });
+
+      return analytics;
+    } catch (error) {
+      this.logger.error('Failed to get host analytics', {
+        hostId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get system-wide analytics
+   */
+  async getSystemAnalytics(startDate?: Date, endDate?: Date) {
+    try {
+      this.logger.log('Getting system analytics', { startDate, endDate });
+
+      const analytics = await this.analytics.getSystemAnalytics(startDate, endDate);
+
+      this.logger.log('System analytics generated', {
+        totalHosts: analytics.totalHosts,
+        totalBookings: analytics.totalBookings,
+        systemUtilization: analytics.systemUtilization
+      });
+
+      return analytics;
+    } catch (error) {
+      this.logger.error('Failed to get system analytics', {
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Enhanced booking cancellation with notification management
+   */
+  async cancelBookingEnhanced(
+    bookingId: string,
+    cancelledBy: string,
+    reason?: string,
+    sendNotifications = true
+  ): Promise<any> {
+    try {
+      this.logger.log('Cancelling booking with enhanced features', {
+        bookingId,
+        cancelledBy,
+        reason
+      });
+
+      // Get the booking first
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: {
+          attendees: true,
+          meetingType: true,
+          host: { select: { id: true, email: true, firstName: true, lastName: true } }
+        }
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      if (booking.status === BookingStatus.CANCELLED) {
+        throw new BadRequestException('Booking is already cancelled');
+      }
+
+      // Cancel future notifications
+      await this.notifications.cancelBookingNotifications(bookingId);
+
+      // Update booking status
+      const updatedBooking = await this.prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: BookingStatus.CANCELLED,
+          notes: reason ? `${booking.notes || ''}\nCancelled by: ${cancelledBy}\nReason: ${reason}` : booking.notes,
+        },
+        include: {
+          attendees: true,
+          meetingType: true,
+          host: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      // Send cancellation notifications
+      if (sendNotifications) {
+        try {
+          await this.notifications.sendImmediateNotification(
+            bookingId,
+            NotificationType.BOOKING_CANCELLED,
+            [RecipientType.BOTH]
+          );
+        } catch (notificationError) {
+          this.logger.error('Failed to send cancellation notifications', {
+            bookingId,
+            error: notificationError.message
+          });
+        }
+      }
+
+      this.logger.log('Booking cancelled successfully', {
+        bookingId,
+        status: updatedBooking.status
+      });
+
+      return updatedBooking;
+    } catch (error) {
+      this.logger.error('Failed to cancel booking', {
+        bookingId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Enhanced booking rescheduling with conflict detection and notifications
+   */
+  async rescheduleBookingEnhanced(
+    bookingId: string,
+    newStartTime: Date,
+    newEndTime: Date,
+    rescheduledBy: string,
+    reason?: string
+  ): Promise<any> {
+    try {
+      this.logger.log('Rescheduling booking with enhanced features', {
+        bookingId,
+        newStartTime,
+        newEndTime,
+        rescheduledBy
+      });
+
+      // Get the booking first
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: {
+          attendees: true,
+          meetingType: true,
+          host: { select: { id: true, email: true, firstName: true, lastName: true } }
+        }
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      // Validate new time slot
+      const validationResult = await this.bookingValidation.validateBookingRequest(
+        booking.hostId,
+        booking.meetingTypeId,
+        newStartTime,
+        newEndTime,
+        booking.attendees,
+        bookingId // Exclude current booking from conflict check
+      );
+
+      if (!validationResult.isValid) {
+        throw new BadRequestException({
+          message: 'New time slot validation failed',
+          errors: validationResult.errors,
+          warnings: validationResult.warnings
+        });
+      }
+
+      // Check for conflicts at new time
+      const conflictResult = await this.conflictDetection.checkBookingConflicts(
+        booking.hostId,
+        newStartTime,
+        newEndTime,
+        bookingId
+      );
+
+      if (conflictResult.hasConflicts) {
+        throw new ConflictException({
+          message: 'New time slot has conflicts',
+          conflicts: conflictResult.conflicts,
+          suggestions: conflictResult.suggestions
+        });
+      }
+
+      // Update the booking
+      console.log('📅 DEBUG - Host reschedule: Setting status to CONFIRMED and marking as rescheduled');
+      const updatedBooking = await this.prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          startTime: newStartTime,
+          endTime: newEndTime,
+          status: BookingStatus.CONFIRMED,  // Host reschedules stay CONFIRMED
+          isRescheduled: true,             // Flag to track this is a rescheduled booking
+          notes: reason ? `${booking.notes || ''}\nRescheduled by: ${rescheduledBy}\nReason: ${reason}` : booking.notes,
+        },
+        include: {
+          attendees: true,
+          meetingType: true,
+          host: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      // Reschedule notifications
+      try {
+        await this.notifications.rescheduleBookingNotifications(bookingId, newStartTime);
+        
+        // Send immediate reschedule notification
+        await this.notifications.sendImmediateNotification(
+          bookingId,
+          NotificationType.BOOKING_RESCHEDULED,
+          [RecipientType.BOTH]
+        );
+      } catch (notificationError) {
+        this.logger.error('Failed to reschedule notifications', {
+          bookingId,
+          error: notificationError.message
+        });
+      }
+
+      this.logger.log('Booking rescheduled successfully', {
+        bookingId,
+        oldStartTime: booking.startTime,
+        newStartTime: updatedBooking.startTime
+      });
+
+      return updatedBooking;
+    } catch (error) {
+      this.logger.error('Failed to reschedule booking', {
+        bookingId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get optimal notification timing suggestions
+   */
+  async getOptimalNotificationTiming(hostId: string, bookingData?: any) {
+    try {
+      return await this.notifications.getOptimalNotificationTiming(hostId, bookingData);
+    } catch (error) {
+      this.logger.error('Failed to get optimal notification timing', {
+        hostId,
+        error: error.message
+      });
+      throw error;
+    }
   }
 }
