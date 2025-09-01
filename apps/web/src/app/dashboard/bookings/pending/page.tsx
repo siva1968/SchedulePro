@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import DashboardPageHeader from '@/components/DashboardPageHeader';
 import DashboardPageContainer from '@/components/DashboardPageContainer';
-import { Clock, User, Mail, Phone, Calendar, CheckCircle, XCircle } from 'lucide-react';
+import { Clock, User, Mail, Phone, Calendar, CheckCircle, XCircle, Video } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function PendingBookingsPage() {
@@ -27,6 +27,11 @@ export default function PendingBookingsPage() {
   const [decliningBookings, setDecliningBookings] = useState<Set<string>>(new Set());
   const [declineReason, setDeclineReason] = useState<string>('');
   const [selectedBookingForDecline, setSelectedBookingForDecline] = useState<string | null>(null);
+  
+  // Meeting provider selection state
+  const [selectedBookingForApproval, setSelectedBookingForApproval] = useState<string | null>(null);
+  const [selectedMeetingProvider, setSelectedMeetingProvider] = useState<string>('ZOOM');
+  const [availableMeetingProviders] = useState(['ZOOM', 'GOOGLE_MEET', 'MICROSOFT_TEAMS']);
 
   useEffect(() => {
     // Only fetch data when user is authenticated and user data is loaded
@@ -36,15 +41,25 @@ export default function PendingBookingsPage() {
   }, [isAuthenticated, user, fetchPendingBookings]);
 
   const handleApproveBooking = async (bookingId: string) => {
+    // Show meeting provider selection dialog
+    setSelectedBookingForApproval(bookingId);
+  };
+
+  const handleConfirmApproval = async () => {
+    if (!selectedBookingForApproval) return;
+
+    const bookingId = selectedBookingForApproval;
     const newApprovingBookings = new Set(approvingBookings);
     newApprovingBookings.add(bookingId);
     setApprovingBookings(newApprovingBookings);
 
     try {
-      await approveBooking(bookingId);
+      await approveBooking(bookingId, selectedMeetingProvider);
       toast.success('Booking approved successfully!');
       // Remove from pending list immediately
       fetchPendingBookings();
+      // Close the meeting provider selection dialog
+      setSelectedBookingForApproval(null);
     } catch (error) {
       toast.error('Failed to approve booking');
     } finally {
@@ -295,6 +310,70 @@ export default function PendingBookingsPage() {
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Meeting Provider Selection Modal */}
+      {selectedBookingForApproval && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <Video className="h-5 w-5 text-gray-500" />
+              <div>
+                <h3 className="font-semibold text-lg">Select Meeting Provider</h3>
+                <p className="text-sm text-gray-600">Choose the video conferencing platform for this meeting</p>
+              </div>
+            </div>
+            
+            <div className="space-y-3 mb-6">
+              {availableMeetingProviders.map((provider) => (
+                <div
+                  key={provider}
+                  onClick={() => setSelectedMeetingProvider(provider)}
+                  className={`p-3 border rounded-lg cursor-pointer transition-all ${
+                    selectedMeetingProvider === provider
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">
+                        {provider === 'ZOOM' && 'Zoom'}
+                        {provider === 'GOOGLE_MEET' && 'Google Meet'}
+                        {provider === 'MICROSOFT_TEAMS' && 'Microsoft Teams'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {provider === 'ZOOM' && 'Zoom Meeting'}
+                        {provider === 'GOOGLE_MEET' && 'Google Meet'}
+                        {provider === 'MICROSOFT_TEAMS' && 'Microsoft Teams'}
+                      </div>
+                    </div>
+                    {selectedMeetingProvider === provider && (
+                      <CheckCircle className="h-5 w-5 text-blue-600" />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                onClick={() => setSelectedBookingForApproval(null)}
+                variant="outline"
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmApproval}
+                disabled={approvingBookings.has(selectedBookingForApproval)}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+              >
+                {approvingBookings.has(selectedBookingForApproval) ? 'Approving...' : 'Approve Booking'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </DashboardPageContainer>

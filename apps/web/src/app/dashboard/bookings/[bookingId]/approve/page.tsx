@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import DashboardPageHeader from '@/components/DashboardPageHeader';
 import DashboardPageContainer from '@/components/DashboardPageContainer';
-import { Clock, User, Mail, Phone, Calendar, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Clock, User, Mail, Phone, Calendar, CheckCircle, ArrowLeft, Video } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ApproveBookingPage() {
@@ -28,12 +28,25 @@ export default function ApproveBookingPage() {
 
   const [isApproving, setIsApproving] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
+  const [selectedMeetingProvider, setSelectedMeetingProvider] = useState('');
+  const [availableMeetingProviders] = useState(['ZOOM', 'GOOGLE_MEET', 'MICROSOFT_TEAMS']);
 
   const userTimezone = useUserTimezone();
   const bookingId = params.bookingId as string;
 
   // Get the booking from store or current booking
   const booking = bookings.find(b => b.id === bookingId) || currentBooking;
+
+  // Debug logging for meeting provider UI visibility
+  useEffect(() => {
+    console.log('🎯 Meeting Provider UI Render Check:', {
+      isApproved,
+      bookingStatus: booking?.status,
+      shouldShow: !isApproved && booking?.status === 'PENDING',
+      selectedMeetingProvider,
+      availableMeetingProviders
+    });
+  }, [isApproved, booking?.status, selectedMeetingProvider, availableMeetingProviders]);
 
   useEffect(() => {
     if (isAuthenticated && user && bookingId) {
@@ -44,22 +57,36 @@ export default function ApproveBookingPage() {
         // Fetch the specific booking if not in store
         fetchBooking(bookingId);
       }
+      
+      // Set initial meeting provider when booking is loaded
+      if (booking && !selectedMeetingProvider) {
+        const initialProvider = booking.meetingProvider || 'ZOOM';
+        setSelectedMeetingProvider(initialProvider);
+        console.log('🎯 Setting initial meeting provider for approval:', initialProvider);
+      }
     }
-  }, [isAuthenticated, user, bookingId, booking, fetchBooking]);
+  }, [isAuthenticated, user, bookingId, booking, fetchBooking, selectedMeetingProvider]);
 
   // Update approval status when booking changes
   useEffect(() => {
+    console.log('🔍 DEBUG - Booking status check:', {
+      bookingExists: !!booking,
+      bookingStatus: booking?.status,
+      isApproved: isApproved,
+      willShowMeetingProvider: !isApproved && booking?.status === 'PENDING'
+    });
+    
     if (booking && booking.status === 'CONFIRMED') {
       setIsApproved(true);
     }
-  }, [booking]);
+  }, [booking, isApproved]);
 
   const handleApprove = async () => {
     if (!booking || isApproving || isApproved) return;
 
     setIsApproving(true);
     try {
-      await approveBooking(bookingId);
+      await approveBooking(bookingId, selectedMeetingProvider);
       setIsApproved(true);
       toast.success('Booking approved successfully!');
       
@@ -220,6 +247,46 @@ export default function ApproveBookingPage() {
               <div className="border-t pt-4">
                 <h3 className="font-medium mb-2">Additional Notes</h3>
                 <p className="text-gray-700 bg-gray-50 p-3 rounded-lg">{booking.notes}</p>
+              </div>
+            )}
+
+            {/* Meeting Provider Selection */}
+            {!isApproved && booking.status === 'PENDING' && (
+              <div className="border-t pt-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <Video className="h-5 w-5 text-gray-500" />
+                  <div>
+                    <h3 className="font-medium">Meeting Provider</h3>
+                    <p className="text-sm text-gray-600">Select the video conferencing platform for this meeting</p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {availableMeetingProviders.map((provider) => (
+                    <div
+                      key={provider}
+                      onClick={() => setSelectedMeetingProvider(provider)}
+                      className={`p-3 border rounded-lg cursor-pointer transition-all ${
+                        selectedMeetingProvider === provider
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-center">
+                        <div className="font-medium capitalize">
+                          {provider === 'ZOOM' && 'Zoom'}
+                          {provider === 'GOOGLE_MEET' && 'Google Meet'}
+                          {provider === 'MICROSOFT_TEAMS' && 'Microsoft Teams'}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {provider === 'ZOOM' && 'Zoom Meeting'}
+                          {provider === 'GOOGLE_MEET' && 'Google Meet'}
+                          {provider === 'MICROSOFT_TEAMS' && 'Microsoft Teams'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

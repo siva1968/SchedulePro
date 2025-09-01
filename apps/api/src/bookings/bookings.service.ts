@@ -1709,7 +1709,7 @@ export class BookingsService {
   }
 
   // Booking approval methods
-  async approveBooking(bookingId: string, hostId: string): Promise<any> {
+  async approveBooking(bookingId: string, hostId: string, approveBookingDto?: any): Promise<any> {
     // Verify the booking exists and belongs to the host
     const booking = await this.prisma.booking.findFirst({
       where: {
@@ -1751,12 +1751,14 @@ export class BookingsService {
       booking.id
     );
 
-    // Determine meeting provider if not already set
-    const meetingProvider = booking.meetingProvider || 
+    // Determine meeting provider - use provided from DTO, or existing logic
+    const meetingProvider = approveBookingDto?.meetingProvider || 
+                           booking.meetingProvider || 
                            booking.meetingType.meetingProvider || 
                            booking.meetingType.organization.defaultMeetingProvider;
 
     console.log('🎥 DEBUG - Booking approval meeting provider selection:', {
+      requestedProvider: approveBookingDto?.meetingProvider,
       existingProvider: booking.meetingProvider,
       fromMeetingType: booking.meetingType.meetingProvider,
       fromOrganization: booking.meetingType.organization.defaultMeetingProvider,
@@ -2144,28 +2146,21 @@ export class BookingsService {
 
   private async createTeamsMeeting(accessToken: string, meetingData: any): Promise<any> {
     try {
-      // Use require for node-fetch to avoid ES module issues
-      const fetch = require('node-fetch');
+      // Use axios instead of node-fetch for better compatibility
+      const axios = require('axios');
       
-      const response = await fetch('https://graph.microsoft.com/v1.0/me/onlineMeetings', {
-        method: 'POST',
+      const response = await axios.post('https://graph.microsoft.com/v1.0/me/onlineMeetings', {
+        subject: meetingData.subject,
+        startDateTime: meetingData.startDateTime,
+        endDateTime: meetingData.endDateTime,
+      }, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          subject: meetingData.subject,
-          startDateTime: meetingData.startDateTime,
-          endDateTime: meetingData.endDateTime,
-        }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Microsoft Graph API error: ${response.status} - ${errorText}`);
-      }
-
-      return await response.json();
+      return response.data;
     } catch (error) {
       console.error('🎥 Microsoft Graph API call failed:', error);
       throw error;
@@ -2173,17 +2168,11 @@ export class BookingsService {
   }
 
   private generateFallbackTeamsLink(booking: any): string {
-    console.log('🎥 Using fallback Teams link generation');
+    console.log('🎥 Using fallback Teams link generation - returning special identifier');
     
-    // Generate a Teams meeting link with proper format as fallback
-    const generateTeamsId = (): string => {
-      const timestamp = Date.now().toString(36);
-      const random = Math.random().toString(36).substring(2, 15);
-      return `19:meeting_${timestamp}${random}@thread.v2`;
-    };
-    
-    const meetingId = generateTeamsId();
-    return `https://teams.microsoft.com/l/meetup-join/${meetingId}?note=Setup-Microsoft-integration-for-real-meetings`;
+    // Return a special identifier that we can detect in email templates
+    // This will be replaced with proper instructions in the email
+    return 'TEAMS_MEETING_MANUAL_SETUP_REQUIRED';
   }
 
   private async generateZoomLink(booking: any): Promise<string | null> {

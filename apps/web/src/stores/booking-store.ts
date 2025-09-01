@@ -15,6 +15,8 @@ interface Booking {
   locationType: string;
   locationDetails?: any;
   meetingUrl?: string;
+  meetingProvider?: string;
+  timezone?: string;
   formResponses?: any;
   paymentStatus: string;
   paymentAmount?: number;
@@ -91,7 +93,7 @@ interface BookingState {
   updateBooking: (id: string, data: any) => Promise<void>;
   cancelBooking: (id: string, reason?: string) => Promise<void>;
   rescheduleBooking: (id: string, startTime: string, endTime: string) => Promise<void>;
-  approveBooking: (id: string) => Promise<void>;
+  approveBooking: (id: string, meetingProvider?: string) => Promise<void>;
   declineBooking: (id: string, reason?: string) => Promise<void>;
   fetchPendingBookings: () => Promise<void>;
   syncBookingToCalendar: (id: string) => Promise<any>;
@@ -248,15 +250,17 @@ export const useBookingStore = create<BookingState>((set, get) => ({
     }
   },
 
-  approveBooking: async (id) => {
+  approveBooking: async (id, meetingProvider) => {
     set({ isLoading: true, error: null });
     try {
+      const body = meetingProvider ? { meetingProvider } : {};
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/bookings/${id}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
         },
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {

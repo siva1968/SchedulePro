@@ -574,7 +574,10 @@ export class EmailService {
               </div>
             </div>
 
-            ${booking.meetingUrl ? `
+            ${booking.meetingUrl ? 
+              this.isTeamsManualSetup(booking.meetingUrl) 
+                ? this.getTeamsManualInstructions(booking)
+                : `
             <div class="meeting-link" style="background-color: #dbeafe; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #3b82f6;">
               <h4 style="margin-top: 0; color: #1e40af;">🔗 Join Your Meeting</h4>
               <p style="margin: 5px 0;"><strong>Meeting Platform:</strong> ${this.getMeetingProviderName(booking.meetingUrl)}</p>
@@ -619,14 +622,27 @@ export class EmailService {
       Time: ${timeRange}
       Duration: ${booking.meetingType.duration} minutes
       Host: ${booking.host.firstName} ${booking.host.lastName}
-      ${booking.meetingUrl ? `Meeting Link: ${booking.meetingUrl} (${this.getMeetingProviderName(booking.meetingUrl)})` : ''}
+      ${booking.meetingUrl ? 
+        this.isTeamsManualSetup(booking.meetingUrl)
+          ? `Meeting Platform: Microsoft Teams (Host will send meeting details separately)`
+          : `Meeting Link: ${booking.meetingUrl} (${this.getMeetingProviderName(booking.meetingUrl)})`
+        : ''}
       Booking ID: ${booking.id}
       
-      ${booking.meetingUrl ? `
+      ${booking.meetingUrl ? 
+        this.isTeamsManualSetup(booking.meetingUrl)
+          ? `
+      MEETING INFORMATION:
+      Platform: Microsoft Teams
+      The host (${booking.host.firstName} ${booking.host.lastName}) will create a Microsoft Teams meeting and send you the joining details separately.
+      Please check your email closer to the meeting time for the Teams meeting invitation.
+      `
+          : `
       JOIN YOUR MEETING:
       Click this link to join your ${this.getMeetingProviderName(booking.meetingUrl)} meeting:
       ${booking.meetingUrl}
-      ` : ''}
+      `
+        : ''}
       
       TIMEZONE INFORMATION:
       Your Local Time: ${startTimeFormatted.formattedTime} - ${endTimeFormatted.formattedTime}
@@ -750,7 +766,10 @@ export class EmailService {
               </div>
             </div>
 
-            ${booking.meetingUrl ? `
+            ${booking.meetingUrl ? 
+              this.isTeamsManualSetup(booking.meetingUrl)
+                ? this.getTeamsManualInstructions(booking)
+                : `
             <div class="meeting-link" style="background-color: #dbeafe; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #3b82f6;">
               <h4 style="margin-top: 0; color: #1e40af;">🔗 Meeting Details</h4>
               <p style="margin: 5px 0;"><strong>Meeting Platform:</strong> ${this.getMeetingProviderName(booking.meetingUrl)}</p>
@@ -1301,6 +1320,21 @@ export class EmailService {
     } else {
       return 'Online Meeting';
     }
+  }
+
+  private isTeamsManualSetup(meetingUrl: string): boolean {
+    return meetingUrl === 'TEAMS_MEETING_MANUAL_SETUP_REQUIRED';
+  }
+
+  private getTeamsManualInstructions(booking: any): string {
+    return `
+      <div class="meeting-link" style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #f59e0b;">
+        <h4 style="margin-top: 0; color: #92400e;">👥 Microsoft Teams Meeting</h4>
+        <p style="margin: 5px 0;"><strong>Meeting Platform:</strong> Microsoft Teams</p>
+        <p style="margin: 5px 0;">The host (${booking.host.firstName} ${booking.host.lastName}) will create a Microsoft Teams meeting and send you the joining details separately.</p>
+        <p style="margin: 5px 0; font-size: 12px; color: #6b7280;">Please check your email closer to the meeting time for the Teams meeting invitation with the join link.</p>
+      </div>
+    `;
   }
 
   // Booking approval workflow email methods

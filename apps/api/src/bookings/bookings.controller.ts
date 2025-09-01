@@ -18,6 +18,7 @@ import { Throttle } from '@nestjs/throttler';
 import { BookingsService } from './bookings.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { CreateBookingDto, UpdateBookingDto, BookingQueryDto } from './dto';
+import { ApproveBookingDto } from './dto/approve-booking.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/auth.decorators';
 
@@ -167,8 +168,12 @@ export class BookingsController {
   @ApiResponse({ status: 200, description: 'Booking approved successfully' })
   @ApiResponse({ status: 404, description: 'Booking not found' })
   @ApiResponse({ status: 403, description: 'Forbidden - only host can approve' })
-  async approveBooking(@Param('id') id: string, @Req() req: any) {
-    return this.bookingsService.approveBooking(id, req.user.id);
+  async approveBooking(
+    @Param('id') id: string, 
+    @Body() approveBookingDto: ApproveBookingDto,
+    @Req() req: any
+  ) {
+    return this.bookingsService.approveBooking(id, req.user.id, approveBookingDto);
   }
 
   @Post(':id/decline')
