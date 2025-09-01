@@ -193,7 +193,38 @@ export class BookingsService {
 
       scopedLogger.logSuccess('create_booking', Date.now() - startTime);
 
-      // Step 5: Set up automated notifications
+      // Step 5: Generate meeting link based on the meeting provider
+      let meetingUrl: string | null = null;
+      try {
+        console.log('🔗 DEBUG - Generating meeting link for host booking');
+        console.log('🔗 DEBUG - Meeting provider:', booking.meetingProvider);
+        
+        meetingUrl = await this.generateMeetingLink(booking);
+        
+        if (meetingUrl) {
+          // Update the booking with the meeting URL
+          await this.prisma.booking.update({
+            where: { id: booking.id },
+            data: { meetingUrl }
+          });
+          
+          // Update the booking object for email notifications
+          booking.meetingUrl = meetingUrl;
+          
+          console.log('🔗 DEBUG - Meeting link generated successfully:', meetingUrl);
+        } else {
+          console.log('🔗 DEBUG - No meeting link generated (provider may not be configured)');
+        }
+      } catch (meetingLinkError) {
+        console.error('🔗 ERROR - Failed to generate meeting link:', meetingLinkError);
+        scopedLogger.error('Failed to generate meeting link', meetingLinkError, {
+          bookingId: booking.id,
+          meetingProvider: booking.meetingProvider
+        });
+        // Don't fail the booking creation if meeting link generation fails
+      }
+
+      // Step 6: Set up automated notifications
       try {
         await this.notifications.setupBookingNotifications(booking.id);
         
@@ -219,7 +250,7 @@ export class BookingsService {
         });
       }
 
-      // Step 6: Calendar integration and email notifications (existing logic)
+      // Step 7: Calendar integration and email notifications (existing logic)
       try {
         console.log('📧 DEBUG - Sending host booking confirmation emails');
         console.log('📧 DEBUG - Attendee data:', JSON.stringify(booking.attendees?.[0], null, 2));
