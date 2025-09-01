@@ -37,12 +37,25 @@ export class BookingsController {
   @ApiResponse({ status: 201, description: 'Host booking created and confirmed automatically' })
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 409, description: 'Time slot conflict' })
-  createHostBooking(@Body() createBookingDto: CreateBookingDto, @Req() req: any) {
+  async createHostBooking(@Body() createBookingDto: CreateBookingDto, @Req() req: any) {
     console.log('👨‍💼 DEBUG - HOST BOOKING ENDPOINT CALLED');
     console.log('👨‍💼 DEBUG - User ID:', req.user?.id);
     console.log('👨‍💼 DEBUG - User email:', req.user?.email);
     console.log('👨‍💼 DEBUG - This should result in CONFIRMED status');
-    return this.bookingsService.create(createBookingDto, req.user.id);
+    
+    try {
+      console.log('👨‍💼 DEBUG - About to call bookingsService.create()');
+      const result = await this.bookingsService.create(createBookingDto, req.user.id);
+      console.log('👨‍💼 DEBUG - bookingsService.create() completed successfully');
+      console.log('👨‍💼 DEBUG - Result type:', typeof result);
+      console.log('👨‍💼 DEBUG - Result exists:', !!result);
+      console.log('👨‍💼 DEBUG - Result ID:', result?.id);
+      console.log('👨‍💼 DEBUG - About to return result to client');
+      return result;
+    } catch (error) {
+      console.error('👨‍💼 ERROR - Controller caught error:', error);
+      throw error;
+    }
   }
 
   @Post()

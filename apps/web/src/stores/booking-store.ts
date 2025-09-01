@@ -78,6 +78,7 @@ interface BookingState {
     locationDetails?: any;
     meetingUrl?: string;
     meetingProvider?: string;
+    timezone?: string; // Customer's selected timezone
     formResponses?: any;
     paymentAmount?: number;
     attendees: Array<{

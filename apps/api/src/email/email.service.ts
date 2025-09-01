@@ -473,12 +473,19 @@ export class EmailService {
   }
 
   async sendBookingConfirmation(booking: any): Promise<EmailSendResult> {
-    console.log('📧 DEBUG - sendBookingConfirmation called');
+    console.log('�🚨🚨 EMAIL SERVICE DEBUG - sendBookingConfirmation ENTRY POINT 🚨🚨🚨');
+    console.log('🚨🚨🚨 BOOKING HAS MEETING URL:', !!booking.meetingUrl);
+    console.log('🚨🚨🚨 MEETING URL VALUE:', booking.meetingUrl);
+    console.log('�📧 DEBUG - sendBookingConfirmation called');
     console.log('📧 DEBUG - Booking ID:', booking.id);
     console.log('📧 DEBUG - Attendee name:', booking.attendees?.[0]?.name);
     console.log('📧 DEBUG - Attendee email:', booking.attendees?.[0]?.email);
     console.log('📧 DEBUG - Host name:', booking.host?.firstName, booking.host?.lastName);
+    console.log('📧 DEBUG - MEETING URL IN BOOKING OBJECT:', booking.meetingUrl);
+    console.log('📧 DEBUG - MEETING PROVIDER IN BOOKING OBJECT:', booking.meetingProvider);
     console.log('📧 DEBUG - CUSTOMER CONFIRMATION EMAIL - About to send to:', booking.attendees?.[0]?.email);
+    console.log('📧 DEBUG - Full booking object keys:', Object.keys(booking));
+    console.log('📧 DEBUG - Booking status:', booking.status);
     
     const frontendUrl = this.configService.get('FRONTEND_URL', 'http://localhost:3000');
     const rescheduleUrl = `${frontendUrl}/public/booking/${booking.id}/reschedule?token=${this.generateBookingToken(booking.id)}`;
@@ -487,8 +494,9 @@ export class EmailService {
     const startTime = new Date(booking.startTime);
     const endTime = new Date(booking.endTime);
     
-    // Use enhanced timezone logic for customer emails
-    const attendeeTimezone = await this.getBookingEmailTimezone(booking, 'customer');
+    // Always use the booking's selected timezone (customer or host selected)
+    const attendeeTimezone = booking.timezone || 'UTC';
+    console.log('🌍 Using booking timezone for customer email:', attendeeTimezone);
     
     const startTimeFormatted = this.formatDateWithTimezone(startTime, attendeeTimezone);
     const endTimeFormatted = this.formatDateWithTimezone(endTime, attendeeTimezone);
@@ -565,6 +573,15 @@ export class EmailService {
                 <span class="detail-value">${booking.host.firstName} ${booking.host.lastName}</span>
               </div>
             </div>
+
+            ${booking.meetingUrl ? `
+            <div class="meeting-link" style="background-color: #dbeafe; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #3b82f6;">
+              <h4 style="margin-top: 0; color: #1e40af;">🔗 Join Your Meeting</h4>
+              <p style="margin: 5px 0;"><strong>Meeting Platform:</strong> ${this.getMeetingProviderName(booking.meetingUrl)}</p>
+              <p style="margin: 10px 0;"><a href="${booking.meetingUrl}" style="color: #2563eb; font-weight: bold; font-size: 16px; text-decoration: none; background-color: #3b82f6; color: white; padding: 10px 20px; border-radius: 6px; display: inline-block;">🎥 Join Meeting</a></p>
+              <p style="margin: 5px 0; font-size: 12px; color: #6b7280;">Click the button above or copy this link: ${booking.meetingUrl}</p>
+            </div>
+            ` : ''}
 
             <div class="timezone-info">
               <h4 style="margin-top: 0; color: #1e40af;">🌍 Timezone Information</h4>
@@ -644,14 +661,23 @@ export class EmailService {
   }
 
   async sendBookingNotificationToHost(booking: any): Promise<EmailSendResult> {
+    console.log('📧 DEBUG - sendBookingNotificationToHost called');
+    console.log('📧 DEBUG - Booking ID:', booking.id);
+    console.log('📧 DEBUG - Host email:', booking.host?.email);
+    console.log('📧 DEBUG - MEETING URL IN BOOKING OBJECT:', booking.meetingUrl);
+    console.log('📧 DEBUG - MEETING PROVIDER IN BOOKING OBJECT:', booking.meetingProvider);
+    
     const frontendUrl = this.configService.get('FRONTEND_URL', 'http://localhost:3000');
     const manageUrl = `${frontendUrl}/dashboard/bookings/${booking.id}`;
     
     const startTime = new Date(booking.startTime);
     const endTime = new Date(booking.endTime);
     
-    // Always use host's timezone for host notifications
-    const hostTimezone = await this.getEmailTimezone(booking.host);
+    // Always use the booking's selected timezone (customer or host selected)
+    console.log('🌍 DEBUG - booking.timezone value:', booking.timezone);
+    console.log('🌍 DEBUG - typeof booking.timezone:', typeof booking.timezone);
+    const hostTimezone = booking.timezone || 'UTC';
+    console.log('🌍 Using booking timezone for host email:', hostTimezone);
     
     const startTimeFormatted = this.formatDateWithTimezone(startTime, hostTimezone);
     const endTimeFormatted = this.formatDateWithTimezone(endTime, hostTimezone);
@@ -724,6 +750,14 @@ export class EmailService {
               </div>
             </div>
 
+            ${booking.meetingUrl ? `
+            <div class="meeting-link" style="background-color: #dbeafe; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #3b82f6;">
+              <h4 style="margin-top: 0; color: #1e40af;">🔗 Meeting Details</h4>
+              <p style="margin: 5px 0;"><strong>Meeting Platform:</strong> ${this.getMeetingProviderName(booking.meetingUrl)}</p>
+              <p style="margin: 5px 0;"><strong>Meeting Link:</strong> <a href="${booking.meetingUrl}" style="color: #2563eb; font-weight: bold;">${booking.meetingUrl}</a></p>
+            </div>
+            ` : ''}
+
             <div class="timezone-info">
               <h4 style="margin-top: 0; color: #1e40af;">🌍 Timezone Information:</h4>
               <p style="margin: 5px 0;"><strong>Your Local Time:</strong> ${startTimeFormatted.formattedTime} - ${endTimeFormatted.formattedTime}</p>
@@ -758,7 +792,14 @@ export class EmailService {
       Time: ${timeRange}
       Duration: ${booking.meetingType.duration} minutes
       Attendee: ${booking.attendees[0]?.name} (${booking.attendees[0]?.email})
+      ${booking.meetingUrl ? `Meeting Link: ${booking.meetingUrl} (${this.getMeetingProviderName(booking.meetingUrl)})` : ''}
       Booking ID: ${booking.id}
+      
+      ${booking.meetingUrl ? `
+      MEETING DETAILS:
+      Platform: ${this.getMeetingProviderName(booking.meetingUrl)}
+      Join Link: ${booking.meetingUrl}
+      ` : ''}
       
       TIMEZONE INFORMATION:
       Your Local Time: ${startTimeFormatted.formattedTime} - ${endTimeFormatted.formattedTime}
@@ -1445,8 +1486,8 @@ export class EmailService {
     const startTime = new Date(booking.startTime);
     const endTime = new Date(booking.endTime);
     
-    // Get host timezone
-    const hostTimezone = booking.host.timezone || 'UTC';
+    // Always use the booking's selected timezone (customer or host selected)
+    const hostTimezone = booking.timezone || 'UTC';
     
     const startTimeFormatted = this.formatDateWithTimezone(startTime, hostTimezone);
     const endTimeFormatted = this.formatDateWithTimezone(endTime, hostTimezone);
@@ -1602,8 +1643,9 @@ export class EmailService {
     const startTime = new Date(booking.startTime);
     const endTime = new Date(booking.endTime);
     
-    // Use enhanced timezone logic for customer emails
-    const attendeeTimezone = await this.getBookingEmailTimezone(booking, 'customer');
+    // Always use the booking's selected timezone (customer or host selected)
+    const attendeeTimezone = booking.timezone || 'UTC';
+    console.log('🌍 Using booking timezone for approval confirmation email:', attendeeTimezone);
     
     const startTimeFormatted = this.formatDateWithTimezone(startTime, attendeeTimezone);
     const endTimeFormatted = this.formatDateWithTimezone(endTime, attendeeTimezone);

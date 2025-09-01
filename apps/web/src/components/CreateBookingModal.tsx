@@ -83,23 +83,14 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
     }
   }, [isOpen, isAuthenticated]);
 
-  // Set default meeting provider when meeting type is selected and provider is empty
+  // Ensure default provider is set when modal opens for authenticated users (fallback only)
   useEffect(() => {
-    if (formData.meetingTypeId && !formData.meetingProvider && availableMeetingProviders.length > 0) {
-      const defaultProvider = 'ZOOM'; // Organization default
-      console.log('🎯 Setting default provider after meeting type selection:', defaultProvider);
-      setFormData(prev => ({ ...prev, meetingProvider: defaultProvider }));
-    }
-  }, [formData.meetingTypeId, formData.meetingProvider, availableMeetingProviders]);
-
-  // Ensure default provider is set when modal opens for authenticated users
-  useEffect(() => {
-    if (isOpen && isAuthenticated && !formData.meetingProvider) {
+    if (isOpen && isAuthenticated && !formData.meetingProvider && !formData.meetingTypeId) {
       const defaultProvider = 'ZOOM';
-      console.log('🎯 Setting initial default provider for authenticated user:', defaultProvider);
+      console.log('🎯 Setting initial default provider for authenticated user (no meeting type selected):', defaultProvider);
       setFormData(prev => ({ ...prev, meetingProvider: defaultProvider }));
     }
-  }, [isOpen, isAuthenticated, formData.meetingProvider]);
+  }, [isOpen, isAuthenticated, formData.meetingProvider, formData.meetingTypeId]);
 
   // Load available slots when date and meeting type are selected
   useEffect(() => {
@@ -115,7 +106,9 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
       }
 
       try {
-        const url = `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${formData.meetingTypeId}&date=${formData.selectedDate}&timezone=${encodeURIComponent(formData.timezone)}&includeUnavailable=true`;
+        // Use API client base URL instead of hardcoded localhost
+        const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+        const url = `${baseURL}/api/v1/public/bookings/available-slots?meetingTypeId=${formData.meetingTypeId}&date=${formData.selectedDate}&timezone=${encodeURIComponent(formData.timezone)}&includeUnavailable=true`;
         console.log('🕐 CreateBookingModal: Fetching slots from:', url);
         
         const response = await fetch(url);
@@ -184,6 +177,26 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
       const fallbackProviders = ['ZOOM'];
       setAvailableMeetingProviders(fallbackProviders);
       setFormData(prev => ({ ...prev, meetingProvider: 'ZOOM' }));
+    }
+  };
+
+  const fetchMeetingTypeProvider = async (meetingTypeId: string) => {
+    if (!meetingTypeId) return null;
+    
+    try {
+      console.log('🔍 Fetching meeting type provider info for:', meetingTypeId);
+      const providerInfo = await apiClient.getMeetingTypeProviderInfo(meetingTypeId) as {
+        effectiveMeetingProvider: string;
+        meetingTypeProvider: string;
+        organizationDefaultProvider: string;
+      };
+      
+      console.log('📋 Meeting type provider info:', providerInfo);
+      
+      return providerInfo.effectiveMeetingProvider;
+    } catch (error) {
+      console.error('❌ Failed to fetch meeting type provider info:', error);
+      return null;
     }
   };
 
@@ -270,6 +283,7 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
         description: formData.description,
         locationType: 'ONLINE',
         meetingProvider: formData.meetingProvider,
+        timezone: formData.timezone, // Include customer's selected timezone
         attendees: [{
           name: formData.attendeeName.trim(),
           email: formData.attendeeEmail.trim(),
@@ -307,7 +321,8 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
           console.log('🔄 Refreshing slots after conflict...');
           const refreshSlots = async () => {
             try {
-              const url = `http://localhost:3001/api/v1/public/bookings/available-slots?meetingTypeId=${formData.meetingTypeId}&date=${formData.selectedDate}&timezone=${encodeURIComponent(formData.timezone)}&includeUnavailable=true`;
+              const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+              const url = `${baseURL}/api/v1/public/bookings/available-slots?meetingTypeId=${formData.meetingTypeId}&date=${formData.selectedDate}&timezone=${encodeURIComponent(formData.timezone)}&includeUnavailable=true`;
               const response = await fetch(url);
               if (response.ok) {
                 const data = await response.json();
@@ -386,7 +401,19 @@ export default function CreateBookingModal({ isOpen, onClose, onSuccess }: Creat
             <select
               id="meetingType"
               value={formData.meetingTypeId}
-              onChange={(e) => setFormData(prev => ({ ...prev, meetingTypeId: e.target.value, selectedDate: '', selectedSlot: null }))}
+              onChange={async (e) => {
+                const meetingTypeId = e.target.value;
+                setFormData(prev => ({ ...prev, meetingTypeId, selectedDate: '', selectedSlot: null, meetingProvider: '' }));
+                
+                // Fetch and set the meeting type's preferred provider
+                if (meetingTypeId) {
+                  const preferredProvider = await fetchMeetingTypeProvider(meetingTypeId);
+                  if (preferredProvider) {
+                    console.log('🎯 Setting meeting provider from meeting type:', preferredProvider);
+                    setFormData(prev => ({ ...prev, meetingProvider: preferredProvider }));
+                  }
+                }
+              }}
               className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
                 errors.meetingTypeId ? 'border-red-300' : 'border-gray-300'
               }`}

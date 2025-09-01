@@ -30,7 +30,8 @@ export class BookingValidationService {
     startTime: string | Date,
     endTime: string | Date,
     attendees: any[],
-    excludeBookingId?: string
+    excludeBookingId?: string,
+    isHostBooking?: boolean // New parameter to identify host bookings
   ): Promise<BookingValidationResult> {
     const result: BookingValidationResult = {
       isValid: true,
@@ -47,8 +48,8 @@ export class BookingValidationService {
         startTime, endTime, meetingType, host.timezone
       );
 
-      // 3. Validate business rules
-      await this.validateBusinessRules(meetingType, startDateTime, endDateTime, attendees, result);
+      // 3. Validate business rules (with host booking consideration)
+      await this.validateBusinessRules(meetingType, startDateTime, endDateTime, attendees, result, isHostBooking);
 
       // 4. Check for conflicts
       const conflictResult = await this.conflictDetection.checkBookingConflicts(
@@ -74,11 +75,19 @@ export class BookingValidationService {
         }
       }
 
-      // 6. Validate advance notice requirement
-      const noticeCheck = this.validateAdvanceNotice(startDateTime, meetingType.requiredNoticeMinutes);
-      if (!noticeCheck.isValid) {
-        result.isValid = false;
-        result.errors.push(noticeCheck.message);
+      // 6. Validate advance notice requirement (relaxed for host bookings)
+      if (!isHostBooking) {
+        const noticeCheck = this.validateAdvanceNotice(startDateTime, meetingType.requiredNoticeMinutes);
+        if (!noticeCheck.isValid) {
+          result.isValid = false;
+          result.errors.push(noticeCheck.message);
+        }
+      } else {
+        // For host bookings, only warn about advance notice
+        const noticeCheck = this.validateAdvanceNotice(startDateTime, meetingType.requiredNoticeMinutes);
+        if (!noticeCheck.isValid) {
+          result.warnings.push(`Note: ${noticeCheck.message}`);
+        }
       }
 
       // 7. Check for overlapping bookings with buffer
@@ -204,12 +213,17 @@ export class BookingValidationService {
     startDateTime: Date,
     endDateTime: Date,
     attendees: any[],
-    result: BookingValidationResult
+    result: BookingValidationResult,
+    isHostBooking?: boolean
   ) {
-    // Check if booking is for a past date
+    // Check if booking is for a past date (relaxed for host bookings)
     const now = new Date();
     if (startDateTime < now) {
-      result.errors.push('Cannot book appointments for past dates');
+      if (isHostBooking) {
+        result.warnings.push('Note: Booking is scheduled for a past date');
+      } else {
+        result.errors.push('Cannot book appointments for past dates');
+      }
     }
 
     // Validate attendee count

@@ -217,6 +217,7 @@ model Booking {
   title           String?
   description     String?
   notes           String?       // Private notes for host
+  timezone        String?       // Customer's selected timezone for this booking
   
   // Location
   locationType    LocationType  @default(ONLINE) @map("location_type")

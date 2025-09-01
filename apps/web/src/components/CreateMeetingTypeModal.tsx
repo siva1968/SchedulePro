@@ -145,9 +145,18 @@ export default function CreateMeetingTypeModal({ isOpen, onClose, onSuccess }: C
       });
       onSuccess();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create meeting type:', error);
-      setErrors({ general: 'Failed to create meeting type. Please try again.' });
+      let errorMessage = 'Failed to create meeting type. Please try again.';
+      
+      // Try to extract the specific error message from the API response
+      if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      setErrors({ general: errorMessage });
     } finally {
       setIsLoading(false);
     }

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SchedulePro Booking Test</title>
+</head>
+<body>
+    <h1>SchedulePro Frontend Test</h1>
+    
+    <div>
+        <h2>Test 1: Direct API Call</h2>
+        <button onclick="testDirectAPI()">Test Direct API Call</button>
+        <div id="directResult"></div>
+    </div>
+    
+    <div>
+        <h2>Test 2: Get Meeting Types</h2>
+        <button onclick="getMeetingTypes()">Get Meeting Types</button>
+        <div id="meetingTypesResult"></div>
+    </div>
+    
+    <div>
+        <h2>Test 3: Create Booking</h2>
+        <button onclick="createTestBooking()">Create Test Booking</button>
+        <div id="bookingResult"></div>
+    </div>
+
+    <script>
+        async function testDirectAPI() {
+            const resultDiv = document.getElementById('directResult');
+            try {
+                const response = await fetch('http://localhost:3001/api/v1/health');
+                const data = await response.json();
+                resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+        
+        async function getMeetingTypes() {
+            const resultDiv = document.getElementById('meetingTypesResult');
+            try {
+                // First get organizations
+                const response = await fetch('http://localhost:3001/api/v1/public/organizations');
+                const orgsData = await response.json();
+                resultDiv.innerHTML = `<pre>Organizations: ${JSON.stringify(orgsData, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+        
+        async function createTestBooking() {
+            const resultDiv = document.getElementById('bookingResult');
+            try {
+                const bookingData = {
+                    meetingTypeId: "b16700a0-c694-4f18-8d3c-75179d76ba69",
+                    startTime: "2025-09-02T14:00:00Z",
+                    endTime: "2025-09-02T14:30:00Z",
+                    attendees: [{
+                        email: "frontend-test@example.com",
+                        name: "Frontend Test User"
+                    }]
+                };
+                
+                const response = await fetch('http://localhost:3001/api/v1/public/bookings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(bookingData)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                resultDiv.innerHTML = `<pre style="color: green;">Success: ${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

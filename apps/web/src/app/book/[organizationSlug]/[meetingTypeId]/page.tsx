@@ -211,6 +211,7 @@ export default function PublicBookingPage() {
         description: formData.description,
         locationType: meetingType.locationType,
         meetingProvider: formData.meetingProvider,
+        timezone: formData.timezone, // Include customer's selected timezone
         attendees: [
           {
             name: formData.attendeeName,

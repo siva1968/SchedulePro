@@ -43,6 +43,12 @@ export class MeetingTypesService {
       return createdMeetingType;
     } catch (error) {
       console.error('ERROR - creating meeting type:', error);
+      
+      // Handle unique constraint violation for duration per host
+      if (error.code === 'P2002' && error.meta?.target?.includes('host_id') && error.meta?.target?.includes('duration')) {
+        throw new BadRequestException(`You already have a meeting type with ${createMeetingTypeDto.duration} minute duration. Each host can only have one meeting type per duration.`);
+      }
+      
       throw error;
     }
   }
@@ -277,11 +283,10 @@ export class MeetingTypesService {
       throw new BadRequestException('Cannot delete meeting type with upcoming bookings. Please cancel all bookings first.');
     }
 
-    console.log('DEBUG - soft deleting meeting type:', id);
-    // Soft delete by setting isActive to false
-    return this.prisma.meetingType.update({
+    console.log('DEBUG - hard deleting meeting type:', id);
+    // Hard delete - actually remove the record from database
+    return this.prisma.meetingType.delete({
       where: { id },
-      data: { isActive: false },
     });
   }
 

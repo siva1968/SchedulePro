@@ -43,7 +43,28 @@ class ApiClient {
         return {} as T;
       }
 
-      return await response.json();
+      // Check if response has content before parsing JSON
+      const contentType = response.headers.get('content-type');
+      const contentLength = response.headers.get('content-length');
+      
+      // If content-length is 0 or response appears empty, return empty object
+      if (contentLength === '0') {
+        console.warn('API returned empty response body for status', response.status);
+        return {} as T;
+      }
+      
+      // Try to parse JSON, but handle empty responses gracefully
+      try {
+        const text = await response.text();
+        if (!text.trim()) {
+          console.warn('API returned empty response body for status', response.status);
+          return {} as T;
+        }
+        return JSON.parse(text);
+      } catch (parseError) {
+        console.error('Failed to parse JSON response:', parseError);
+        throw new Error('Invalid JSON response from server');
+      }
     } catch (error) {
       if (error instanceof TypeError && error.message.includes('fetch')) {
         throw new Error('Network error - please check your connection');
@@ -114,6 +135,10 @@ class ApiClient {
 
   async getMeetingType(id: string) {
     return this.request(`/meeting-types/${id}`);
+  }
+
+  async getMeetingTypeProviderInfo(id: string) {
+    return this.request(`/meeting-types/${id}/provider-info`);
   }
 
   async createMeetingType(data: {
@@ -200,6 +225,7 @@ class ApiClient {
     locationDetails?: any;
     meetingUrl?: string;
     meetingProvider?: string;
+    timezone?: string; // Customer's selected timezone
     formResponses?: any;
     paymentAmount?: number;
     attendees: Array<{

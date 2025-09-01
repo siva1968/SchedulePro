@@ -38,6 +38,7 @@
   "license": "ISC",
   "dependencies": {
     "class-variance-authority": "^0.7.1",
+    "node-fetch": "^3.3.2",
     "sonner": "^2.0.7"
   }
 }

@@ -65,19 +65,32 @@ export class BookingsService {
 
     try {
       // Step 1: Comprehensive booking validation using new service
+      console.log('🔍 DEBUG - Starting booking validation');
+      console.log('🔍 DEBUG - hostId:', hostId);
+      console.log('🔍 DEBUG - meetingTypeId:', createBookingDto.meetingTypeId);
+      console.log('🔍 DEBUG - startTime:', createBookingDto.startTime);
+      console.log('🔍 DEBUG - endTime:', createBookingDto.endTime);
+      console.log('🔍 DEBUG - attendees:', JSON.stringify(attendees, null, 2));
+      
       const validationResult = await this.bookingValidation.validateBookingRequest(
         hostId,
         createBookingDto.meetingTypeId,
         createBookingDto.startTime,
         createBookingDto.endTime,
-        attendees || []
+        attendees || [],
+        undefined, // excludeBookingId
+        true       // isHostBooking = true
       );
+
+      console.log('🔍 DEBUG - Validation result:', JSON.stringify(validationResult, null, 2));
 
       if (!validationResult.isValid) {
         this.logger.warn('Booking validation failed', {
           errors: validationResult.errors,
           warnings: validationResult.warnings
         });
+        console.error('❌ VALIDATION FAILED:', validationResult.errors);
+        console.error('⚠️  VALIDATION WARNINGS:', validationResult.warnings);
         throw new BadRequestException({
           message: 'Booking validation failed',
           errors: validationResult.errors,
@@ -144,14 +157,18 @@ export class BookingsService {
         finalSelection: meetingProvider
       });
 
+      console.log('🕐 DEBUG - Creating booking with timezone:', createBookingDto.timezone);
+      console.log('🕐 DEBUG - Typeof timezone:', typeof createBookingDto.timezone);
+      
       // Step 4: Create the booking
-      const booking = await this.prisma.booking.create({
+      let booking = await this.prisma.booking.create({
         data: {
           ...bookingData,
           startTime: normalizedStartTime,
           endTime: normalizedEndTime,
           hostId,
           meetingProvider: meetingProvider,  // Use the determined meeting provider
+          timezone: createBookingDto.timezone, // Store customer's selected timezone
           // Host-created bookings are automatically confirmed (no approval needed)
           status: BookingStatus.CONFIRMED,
           isHostCreated: true,  // Mark as host-created booking
@@ -194,14 +211,19 @@ export class BookingsService {
       scopedLogger.logSuccess('create_booking', Date.now() - startTime);
 
       // Step 5: Generate meeting link based on the meeting provider
+      console.log('🔗 DEBUG - Starting Step 5: Meeting link generation');
       let meetingUrl: string | null = null;
       try {
         console.log('🔗 DEBUG - Generating meeting link for host booking');
+        console.log('🔗 DEBUG - Booking ID:', booking.id);
         console.log('🔗 DEBUG - Meeting provider:', booking.meetingProvider);
+        console.log('🔗 DEBUG - Full booking object structure:', JSON.stringify(booking, null, 2));
         
         meetingUrl = await this.generateMeetingLink(booking);
+        console.log('🔗 DEBUG - generateMeetingLink returned:', meetingUrl);
         
         if (meetingUrl) {
+          console.log('🔗 DEBUG - Updating booking with meeting URL');
           // Update the booking with the meeting URL
           await this.prisma.booking.update({
             where: { id: booking.id },
@@ -217,12 +239,14 @@ export class BookingsService {
         }
       } catch (meetingLinkError) {
         console.error('🔗 ERROR - Failed to generate meeting link:', meetingLinkError);
+        console.error('🔗 ERROR - Error stack:', meetingLinkError.stack);
         scopedLogger.error('Failed to generate meeting link', meetingLinkError, {
           bookingId: booking.id,
           meetingProvider: booking.meetingProvider
         });
         // Don't fail the booking creation if meeting link generation fails
       }
+      console.log('🔗 DEBUG - Completed Step 5: Meeting link generation');
 
       // Step 6: Set up automated notifications
       try {
@@ -257,20 +281,101 @@ export class BookingsService {
         console.log('📧 DEBUG - Host data:', JSON.stringify(booking.host, null, 2));
         console.log('🌍 DEBUG - This is a HOST-CREATED booking, using host timezone for both emails');
         
+        // CRITICAL DEBUG: Check booking object before sending emails
+        console.log('🔗 DEBUG - Booking object before email sending:');
+        console.log('🔗 DEBUG - booking.id:', booking.id);
+        console.log('🔗 DEBUG - booking.meetingUrl:', booking.meetingUrl);
+        console.log('🔗 DEBUG - booking.meetingProvider:', booking.meetingProvider);
+        console.log('🔗 DEBUG - booking object keys:', Object.keys(booking));
+        
+        // CRITICAL FIX: Fetch the updated booking from database to ensure we have the meeting URL
+        console.log('🔗 DEBUG - Fetching updated booking from database to get meeting URL');
+        const updatedBooking = await this.prisma.booking.findUnique({
+          where: { id: booking.id },
+          include: {
+            attendees: true,
+            meetingType: true,
+            host: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                timezone: true,
+              },
+            },
+          },
+        });
+        
+        if (updatedBooking) {
+          console.log('🔗 DEBUG - Updated booking fetched successfully');
+          console.log('🔗 DEBUG - updatedBooking.meetingUrl:', updatedBooking.meetingUrl);
+          
+          // Use the updated booking object for emails
+          booking = updatedBooking;
+        } else {
+          console.log('🔗 ERROR - Failed to fetch updated booking from database');
+        }
+        
         // For host bookings, both customer and host should see times in host's timezone
-        await Promise.all([
-          this.emailService.sendBookingConfirmation(booking),
-          this.emailService.sendBookingNotificationToHost(booking),
-        ]);
+        console.log('📧 DEBUG - About to send emails with Promise.all');
+        try {
+          const emailResults = await Promise.all([
+            this.emailService.sendBookingConfirmation(booking),
+            this.emailService.sendBookingNotificationToHost(booking),
+          ]);
+          console.log('📧 DEBUG - Promise.all completed successfully:', emailResults);
+        } catch (promiseError) {
+          console.error('📧 ERROR - Promise.all failed:', promiseError);
+          // CRITICAL FIX: Don't re-throw, just log and continue
+          console.log('📧 DEBUG - Continuing execution despite email error');
+        }
         
         console.log('📧 DEBUG - Host booking confirmation emails sent successfully');
+        
+        // IMMEDIATE URGENT DEBUG - Force immediate logging
+        process.stdout.write('🚨 URGENT - Immediate checkpoint after email success\n');
+        console.log('🚨 URGENT - About to check for hanging operations');
+        
+        // CRITICAL DEBUG: Add immediate checkpoint
+        console.log('📧 DEBUG - CHECKPOINT ALPHA - Line after email success');
+        
+        // CRITICAL DEBUG: Test basic operations
+        let checkpoint = 'BETA';
+        console.log('📧 DEBUG - CHECKPOINT', checkpoint, '- Basic variable assignment works');
+        
+        // CRITICAL DEBUG: Test console.log itself
+        try {
+          console.log('📧 DEBUG - CHECKPOINT GAMMA - Testing console.log');
+        } catch (consoleError) {
+          console.error('CONSOLE ERROR:', consoleError);
+        }
+        
+        console.log('📧 DEBUG - About to exit email try block');
       } catch (emailError) {
         console.error('📧 ERROR - Failed to send booking notification emails:', emailError);
         scopedLogger.error('Failed to send booking notification emails', emailError);
         // Don't fail the booking creation if email fails
       }
+      
+      console.log('📧 DEBUG - Exited email try-catch block');
 
-      return booking;
+      // Debug point to ensure we reach here
+      console.log('🔄 DEBUG - About to return booking to frontend');
+      console.log('🔄 DEBUG - Booking object exists:', !!booking);
+      console.log('🔄 DEBUG - Booking ID:', booking?.id);
+
+      // Return the booking with all updates (including meeting URL if generated)
+      try {
+        console.log('✅ DEBUG - Attempting to return completed booking:', booking.id);
+        const returnValue = booking;
+        console.log('✅ DEBUG - Return value prepared successfully');
+        return returnValue;
+      } catch (returnError) {
+        console.error('🚨 RETURN ERROR:', returnError);
+        console.log('🚨 RETURN ERROR - Falling back to basic return');
+        return booking;
+      }
     } catch (error) {
       // Record failure metrics
       this.metricsService.recordEvent({
@@ -997,14 +1102,15 @@ export class BookingsService {
           startTime: startTime,
           endTime: finalEndTime,
           hostId,
-          // Public bookings always require approval and go to PENDING status
-          status: BookingStatus.PENDING,
+          timezone: createBookingDto.timezone, // Store customer's selected timezone
+          // Set status based on whether approval is required
+          status: meetingType.requiresApproval ? BookingStatus.PENDING : BookingStatus.CONFIRMED,
           // Use the provided meeting provider or fall back to the meeting type's default
           meetingProvider: createBookingDto.meetingProvider || meetingType.meetingProvider,
           attendees: {
             create: attendees.map((attendee) => ({
               ...attendee,
-              status: 'PENDING',
+              status: meetingType.requiresApproval ? 'PENDING' : 'CONFIRMED',
             })),
           },
         },
@@ -1873,6 +1979,8 @@ export class BookingsService {
   private async generateGoogleMeetLink(booking: any): Promise<string | null> {
     try {
       console.log('🎥 Generating Google Meet link for booking:', booking.id);
+      console.log('🎥 DEBUG - booking.hostId:', booking.hostId);
+      console.log('🎥 DEBUG - booking.host:', booking.host);
       
       // Check if host has Google Calendar integration
       const googleIntegration = await this.prisma.calendarIntegration.findFirst({
@@ -1884,6 +1992,7 @@ export class BookingsService {
       });
 
       console.log('🎥 Google integration found:', !!googleIntegration);
+      console.log('🎥 Google integration details:', googleIntegration ? { id: googleIntegration.id, userId: googleIntegration.userId, isActive: googleIntegration.isActive } : 'None');
 
       if (googleIntegration && googleIntegration.accessToken) {
         console.log('🎥 Attempting to create Google Calendar event with Meet link');

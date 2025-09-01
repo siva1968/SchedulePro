@@ -192,6 +192,7 @@ export default function UnifiedBookingPage() {
           endTime: endTimeInSelectedTZ.toISOString(),
           title: formData.title,
           description: formData.description,
+          timezone: formData.timezone, // Include customer's selected timezone
           attendees: [
             {
               name: formData.attendeeName,

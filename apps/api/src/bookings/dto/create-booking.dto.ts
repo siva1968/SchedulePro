@@ -164,4 +164,13 @@ export class CreateBookingDto {
   @ValidateNested({ each: true })
   @Type(() => CreateBookingAttendeeDto)
   attendees: CreateBookingAttendeeDto[];
+
+  @ApiPropertyOptional({ 
+    description: 'Timezone for the booking (e.g., "Asia/Kolkata", "America/New_York")',
+    example: 'Asia/Kolkata'
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100, { message: 'Timezone must not exceed 100 characters' })
+  timezone?: string;
 }
